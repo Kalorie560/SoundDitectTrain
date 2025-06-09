@@ -161,25 +161,69 @@ class AudioDataset(Dataset):
         self.augment = augment
         self.data_indices = []
         
+        logger.info(f"📊 Initializing AudioDataset with {len(data_files)} files")
+        
         # Build index of all samples
+        total_samples = 0
         for file_idx, file_path in enumerate(data_files):
             try:
+                logger.info(f"📁 Processing file {file_idx + 1}/{len(data_files)}: {file_path}")
+                
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                    # Handle both old format (list of entries) and new format (waveforms/labels arrays)
-                    if isinstance(data, list):
-                        # Old format: [{"Waveform": [...], "Labels": 0}, ...]
-                        for sample_idx in range(len(data)):
+                
+                file_samples = 0
+                
+                # Handle both old format (list of entries) and new format (waveforms/labels arrays)
+                if isinstance(data, list):
+                    # Old format: [{"Waveform": [...], "Labels": 0}, ...]
+                    logger.info(f"   📋 Detected old format (list) with {len(data)} entries")
+                    for sample_idx in range(len(data)):
+                        # Validate that each entry has the required fields
+                        entry = data[sample_idx]
+                        if isinstance(entry, dict) and 'Waveform' in entry and 'Labels' in entry:
                             self.data_indices.append((file_idx, sample_idx))
-                    elif isinstance(data, dict) and 'waveforms' in data:
-                        # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
-                        num_samples = len(data['waveforms'])
-                        for sample_idx in range(num_samples):
+                            file_samples += 1
+                        else:
+                            logger.warning(f"   ⚠️  Entry {sample_idx} missing 'Waveform' or 'Labels' fields")
+                            
+                elif isinstance(data, dict) and 'waveforms' in data:
+                    # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
+                    waveforms = data.get('waveforms', [])
+                    labels = data.get('labels', [])
+                    
+                    logger.info(f"   📋 Detected new format with {len(waveforms)} waveforms and {len(labels)} labels")
+                    
+                    if len(waveforms) != len(labels):
+                        logger.warning(f"   ⚠️  Mismatch: {len(waveforms)} waveforms vs {len(labels)} labels")
+                        
+                    num_samples = min(len(waveforms), len(labels))
+                    for sample_idx in range(num_samples):
+                        # Validate waveform data
+                        waveform = waveforms[sample_idx]
+                        if isinstance(waveform, list) and len(waveform) > 0:
                             self.data_indices.append((file_idx, sample_idx))
+                            file_samples += 1
+                        else:
+                            logger.warning(f"   ⚠️  Sample {sample_idx} has invalid waveform data")
+                            
+                else:
+                    # Check what the data structure actually looks like
+                    if isinstance(data, dict):
+                        keys = list(data.keys())
+                        logger.warning(f"   ❌ Unknown dict format. Available keys: {keys}")
                     else:
-                        logger.warning(f"Unknown data format in {file_path}")
+                        logger.warning(f"   ❌ Unknown data type: {type(data)}")
+                
+                logger.info(f"   ✅ Added {file_samples} valid samples from this file")
+                total_samples += file_samples
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"   ❌ JSON parsing error in {file_path}: {e}")
             except Exception as e:
-                logger.warning(f"Could not index file {file_path}: {e}")
+                logger.error(f"   ❌ Could not process file {file_path}: {e}")
+        
+        logger.info(f"🎯 Dataset initialization complete: {total_samples} total samples from {len(data_files)} files")
     
     def __len__(self):
         return len(self.data_indices)

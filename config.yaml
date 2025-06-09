@@ -81,11 +81,8 @@ data:
   max_memory_usage: "2GB"
   prefetch_buffer_size: 10
 
-# Sample Data Generation Configuration
-sample_generation:
-  num_files: 10          # Number of JSON files to generate
-  samples_per_file: 100  # Number of audio samples per file
-  anomaly_ratio: 0.3     # Percentage of anomaly samples (30%)
+# Data Configuration - expects real JSON files in data directory
+# JSON files should contain: {"waveforms": [[...]], "labels": ["OK", "NG"], "fs": 44100}
 
 # Server Configuration
 server:

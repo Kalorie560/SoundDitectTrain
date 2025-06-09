@@ -74,20 +74,31 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 > 🌟 **ClearMLアカウント**: [https://app.clear.ml](https://app.clear.ml) でアカウント作成後、プロフィールページから認証情報を取得してください。
 
-#### 3. サンプルデータ生成（学習前に必須）
+#### 3. 学習データの準備
 
-```bash
-# サンプル学習データを生成（すべての設定はconfig.yamlから読み込まれます）
-python scripts/generate_sample_data.py
+> 📝 **重要**: モデル学習を行う場合は、独自のJSONデータファイルを`./data`ディレクトリに配置してください。
+
+**データ形式要件**:
+```json
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44100個の音声サンプル（1秒分）
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // 正常音
+    "NG"    // 異常音
+  ],
+  "fs": 44100,        // サンプリング周波数
+  "metric": "RMS"     // 測定指標
+}
 ```
-
-> ⚠️ **重要**: モデル学習を行う場合は、まずサンプルデータを生成するか、独自のJSONデータファイルを`./data`ディレクトリに配置してください。
 
 #### 4. モデル学習（オプション）
 
 ```bash
 # モデルを学習（すべての設定はconfig.yamlから読み込まれます）
-# 注意: 事前にサンプルデータ生成が必要です
+# 注意: 事前に学習データをdataディレクトリに配置してください
 python scripts/train_model.py
 ```
 
@@ -126,7 +137,6 @@ SoundDitect/
 │   └── app.js              # メインアプリケーション
 ├── scripts/                 # ユーティリティスクリプト
 │   ├── train_model.py      # モデル学習
-│   ├── generate_sample_data.py # サンプルデータ生成
 │   └── setup_clearml.py    # ClearML設定スクリプト
 ├── models/                  # 学習済みモデル保存先
 ├── data/                    # 学習データ
@@ -148,12 +158,8 @@ SoundDitect/
     "OK",   // 正常音
     "NG"    // 異常音
   ],
-  "fs": 44100,        // サンプリング周波数
-  "metric": "RMS",    // 測定指標
-  "auto_labels": [    // 自動生成ラベル
-    "OK",
-    "NG"
-  ]
+  "fs": 44100,        // サンプリング周波数（必須）
+  "metric": "RMS"     // 測定指標（オプション）
 }
 ```
 
@@ -264,17 +270,31 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 > 🌟 **ClearML Account**: Create an account at [https://app.clear.ml](https://app.clear.ml) and obtain credentials from your profile page.
 
-#### 3. Generate Sample Data (Optional)
+#### 3. Prepare Training Data
 
-```bash
-# Generate sample training data (all settings are read from config.yaml)
-python scripts/generate_sample_data.py
+> 📝 **Important**: To train models, place your JSON data files in the `./data` directory.
+
+**Data Format Requirements**:
+```json
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44100 audio samples (1 second)
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // Normal sound
+    "NG"    // Anomaly sound
+  ],
+  "fs": 44100,        // Sampling frequency
+  "metric": "RMS"     // Measurement metric
+}
 ```
 
 #### 4. Train Model (Optional)
 
 ```bash
 # Train model (all settings are read from config.yaml)
+# Note: Training data must be placed in data directory first
 python scripts/train_model.py
 ```
 
@@ -313,7 +333,6 @@ SoundDitect/
 │   └── app.js              # Main application
 ├── scripts/                 # Utility scripts
 │   ├── train_model.py      # Model training
-│   ├── generate_sample_data.py # Sample data generation
 │   └── setup_clearml.py    # ClearML setup script
 ├── models/                  # Trained model storage
 ├── data/                    # Training data
@@ -326,13 +345,23 @@ SoundDitect/
 Training data is provided in the following JSON format:
 
 ```json
-[
-  {
-    "Waveform": [0.1, -0.2, 0.3, ...],  // 44100 audio samples (1 second)
-    "Labels": 0  // 0: Normal, 1: Anomaly
-  }
-]
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44100 audio samples (1 second)
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // Normal sound
+    "NG"    // Anomaly sound
+  ],
+  "fs": 44100,        // Sampling frequency (required)
+  "metric": "RMS"     // Measurement metric (optional)
+}
 ```
+
+**Important**: The system supports both new and legacy data formats:
+- **New format**: `{"waveforms": [...], "labels": ["OK", "NG"]}` (recommended)
+- **Legacy format**: `[{"Waveform": [...], "Labels": 0}]` (for compatibility)
 
 ### Architecture Overview
 
@@ -407,14 +436,13 @@ Edit the `config.yaml` file to customize:
 - ブラウザキャッシュをクリア
 
 **モデル学習エラー: 'num_samples should be a positive integer value, but got num_samples=0'**
-- **原因**: 学習データが見つからない（./dataディレクトリに*.jsonファイルがない）
+- **原因**: 学習データが見つからない、またはデータ形式が正しくない
 - **解決方法**:
-  1. サンプルデータを生成:
-     ```bash
-     python scripts/generate_sample_data.py
-     ```
-  2. または独自のJSONデータファイルを./dataディレクトリに配置
-  3. データ形式: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  1. ./dataディレクトリに正しい形式のJSONファイルを配置
+  2. データ形式を確認: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  3. JSONファイルが正しい構造になっているか確認
+  4. ファイルサイズが0でないか確認
+  5. 詳細なエラーログを確認してデータ読み込み状況を把握
 
 **その他のモデル学習エラー**
 - データ形式が仕様に合っているか確認
