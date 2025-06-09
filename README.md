@@ -46,6 +46,9 @@ cd SoundDitect
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
+# pipを最新バージョンにアップグレード（重要）
+pip install --upgrade pip
+
 # 依存関係をインストール
 pip install -r requirements.txt
 ```
@@ -215,6 +218,9 @@ cd SoundDitect
 # Create and activate virtual environment
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Upgrade pip to latest version (important)
+pip install --upgrade pip
 
 # Install dependencies
 pip install -r requirements.txt
