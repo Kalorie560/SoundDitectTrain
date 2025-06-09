@@ -1,0 +1,2 @@
+# This file ensures the models directory is created when cloning the repository
+# Trained AI models will be saved in this directory

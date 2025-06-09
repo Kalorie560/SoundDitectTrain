@@ -50,28 +50,49 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### 2. サンプルデータ生成（オプション）
+#### 2. ClearML設定（必須）
 
 ```bash
-# サンプル学習データを生成
-python scripts/generate_sample_data.py --output-dir ./data --num-files 10 --samples-per-file 100
+# ClearMLを設定（以下のいずれかの方法を選択）
+
+# 方法1: 自動設定スクリプトを使用（推奨）
+python scripts/setup_clearml.py
+
+# 方法2: 手動設定
+clearml-init
+
+# 方法3: 環境変数で設定
+export CLEARML_WEB_HOST=https://app.clear.ml
+export CLEARML_API_HOST=https://api.clear.ml
+export CLEARML_FILES_HOST=https://files.clear.ml
+export CLEARML_API_ACCESS_KEY=your_access_key_here
+export CLEARML_API_SECRET_KEY=your_secret_key_here
 ```
 
-#### 3. モデル学習（オプション）
+> 🌟 **ClearMLアカウント**: [https://app.clear.ml](https://app.clear.ml) でアカウント作成後、プロフィールページから認証情報を取得してください。
+
+#### 3. サンプルデータ生成（オプション）
 
 ```bash
-# モデルを学習
-python scripts/train_model.py --data-dir ./data --epochs 50
+# サンプル学習データを生成（すべての設定はconfig.yamlから読み込まれます）
+python scripts/generate_sample_data.py
 ```
 
-#### 4. サーバー起動
+#### 4. モデル学習（オプション）
+
+```bash
+# モデルを学習（すべての設定はconfig.yamlから読み込まれます）
+python scripts/train_model.py
+```
+
+#### 5. サーバー起動
 
 ```bash
 # サーバーを起動
 python run_server.py
 ```
 
-#### 5. アプリケーション使用
+#### 6. アプリケーション使用
 
 1. ブラウザで `http://localhost:8000` にアクセス
 2. マイクアクセスを許可
@@ -99,7 +120,8 @@ SoundDitect/
 │   └── app.js              # メインアプリケーション
 ├── scripts/                 # ユーティリティスクリプト
 │   ├── train_model.py      # モデル学習
-│   └── generate_sample_data.py # サンプルデータ生成
+│   ├── generate_sample_data.py # サンプルデータ生成
+│   └── setup_clearml.py    # ClearML設定スクリプト
 ├── models/                  # 学習済みモデル保存先
 ├── data/                    # 学習データ
 ├── logs/                    # ログファイル
@@ -198,28 +220,49 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-#### 2. Generate Sample Data (Optional)
+#### 2. ClearML Setup (Required)
 
 ```bash
-# Generate sample training data
-python scripts/generate_sample_data.py --output-dir ./data --num-files 10 --samples-per-file 100
+# Configure ClearML (choose one of the following methods)
+
+# Method 1: Use automatic setup script (recommended)
+python scripts/setup_clearml.py
+
+# Method 2: Manual setup
+clearml-init
+
+# Method 3: Use environment variables
+export CLEARML_WEB_HOST=https://app.clear.ml
+export CLEARML_API_HOST=https://api.clear.ml
+export CLEARML_FILES_HOST=https://files.clear.ml
+export CLEARML_API_ACCESS_KEY=your_access_key_here
+export CLEARML_API_SECRET_KEY=your_secret_key_here
 ```
 
-#### 3. Train Model (Optional)
+> 🌟 **ClearML Account**: Create an account at [https://app.clear.ml](https://app.clear.ml) and obtain credentials from your profile page.
+
+#### 3. Generate Sample Data (Optional)
 
 ```bash
-# Train model
-python scripts/train_model.py --data-dir ./data --epochs 50
+# Generate sample training data (all settings are read from config.yaml)
+python scripts/generate_sample_data.py
 ```
 
-#### 4. Start Server
+#### 4. Train Model (Optional)
+
+```bash
+# Train model (all settings are read from config.yaml)
+python scripts/train_model.py
+```
+
+#### 5. Start Server
 
 ```bash
 # Start server
 python run_server.py
 ```
 
-#### 5. Use Application
+#### 6. Use Application
 
 1. Access `http://localhost:8000` in browser
 2. Allow microphone access
@@ -247,7 +290,8 @@ SoundDitect/
 │   └── app.js              # Main application
 ├── scripts/                 # Utility scripts
 │   ├── train_model.py      # Model training
-│   └── generate_sample_data.py # Sample data generation
+│   ├── generate_sample_data.py # Sample data generation
+│   └── setup_clearml.py    # ClearML setup script
 ├── models/                  # Trained model storage
 ├── data/                    # Training data
 ├── logs/                    # Log files
