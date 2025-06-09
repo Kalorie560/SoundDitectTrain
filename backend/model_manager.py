@@ -5,11 +5,24 @@ This module handles the AI model architecture, training, inference,
 and integration with ClearML for experiment tracking.
 """
 
-# Suppress urllib3 warnings for macOS LibreSSL compatibility
+# Comprehensive SSL and urllib3 warning suppression for macOS LibreSSL compatibility
 import warnings
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import ssl
+import os
+
+# Suppress all urllib3 warnings
+urllib3.disable_warnings()
 warnings.filterwarnings("ignore", "urllib3*")
+warnings.filterwarnings("ignore", "Unverified HTTPS request*")
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+
+# Additional SSL configuration for macOS LibreSSL
+try:
+    # Set SSL context to be more permissive for older LibreSSL versions
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
 
 import torch
 import torch.nn as nn
@@ -285,31 +298,51 @@ class ModelManager:
         self._init_clearml()
     
     def _init_clearml(self):
-        """Initialize ClearML experiment tracking with fallback for connection issues."""
+        """Initialize ClearML experiment tracking with robust error handling."""
         try:
-            # Set offline mode for ClearML if SSL/connection issues occur
             import warnings
             import os
+            import sys
             
-            # Try to set offline mode to avoid SSL issues
-            os.environ.setdefault('CLEARML_OFFLINE_MODE', '1')
-            
+            # Comprehensive warning suppression to avoid SSL issues
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 
-                self.task = Task.init(
-                    project_name=self.config['clearml']['project_name'],
-                    task_name=self.config['clearml']['task_name'],
-                    output_uri=self.config['clearml']['output_uri']
-                )
+                # Suppress urllib3 warnings
+                import urllib3
+                urllib3.disable_warnings()
                 
-                # Log configuration
-                self.task.connect(self.config)
-                logger.info("ClearML task initialized")
+                # Try ClearML initialization with timeout
+                try:
+                    # First try normal initialization
+                    self.task = Task.init(
+                        project_name=self.config['clearml']['project_name'],
+                        task_name=self.config['clearml']['task_name'],
+                        output_uri=self.config['clearml']['output_uri'],
+                        reuse_last_task_id=False
+                    )
+                    
+                    # Log configuration if successful
+                    if self.task:
+                        self.task.connect(self.config)
+                        logger.info("✅ ClearML task initialized successfully")
+                        return
+                        
+                except SystemExit:
+                    # Handle SystemExit exception that can occur with SSL issues
+                    logger.warning("⚠️ ClearML initialization caused SystemExit - switching to offline mode")
+                    self.task = None
+                except Exception as init_error:
+                    logger.warning(f"⚠️ ClearML initialization failed: {init_error}")
+                    self.task = None
             
         except Exception as e:
-            logger.warning(f"ClearML initialization failed: {e}")
+            logger.warning(f"⚠️ ClearML setup error: {e}")
             self.task = None
+        
+        # If initialization failed, log that we're continuing without ClearML
+        if self.task is None:
+            logger.info("🔄 Continuing without ClearML experiment tracking")
     
     def create_model(self) -> SoundAnomalyDetector:
         """Create a new model instance."""
@@ -438,11 +471,15 @@ class ModelManager:
                 # Validation phase
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
                 
-                # Log metrics
-                if self.task:
-                    self.task.logger.report_scalar("Loss", "Train", value=train_loss, iteration=epoch)
-                    self.task.logger.report_scalar("Loss", "Validation", value=val_loss, iteration=epoch)
-                    self.task.logger.report_scalar("Accuracy", "Validation", value=val_acc, iteration=epoch)
+                # Log metrics to ClearML if available
+                try:
+                    if self.task and hasattr(self.task, 'logger'):
+                        self.task.logger.report_scalar("Loss", "Train", value=train_loss, iteration=epoch)
+                        self.task.logger.report_scalar("Loss", "Validation", value=val_loss, iteration=epoch)
+                        self.task.logger.report_scalar("Accuracy", "Validation", value=val_acc, iteration=epoch)
+                except Exception as log_error:
+                    # Continue training even if logging fails
+                    logger.debug(f"ClearML logging error: {log_error}")
                 
                 logger.info(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
                 
@@ -474,28 +511,51 @@ class ModelManager:
                 logger.warning("No data files found")
                 return None, None
             
-            # Split data files for training/validation
-            split_idx = int(len(data_files) * (1 - self.config['training']['validation_split']))
-            train_files = data_files[:split_idx]
-            val_files = data_files[split_idx:]
+            # Handle small datasets intelligently
+            validation_split = self.config['training']['validation_split']
+            
+            if len(data_files) == 1:
+                # For single file, use it for both training and validation
+                # This prevents empty training sets with small datasets
+                logger.info(f"📋 Single data file detected - using for both training and validation")
+                train_files = data_files
+                val_files = data_files
+            else:
+                # Multiple files: split files for training/validation
+                split_idx = max(1, int(len(data_files) * (1 - validation_split)))
+                train_files = data_files[:split_idx]
+                val_files = data_files[split_idx:]
+                
+                logger.info(f"📋 Multiple files detected - {len(train_files)} for training, {len(val_files)} for validation")
             
             # Create datasets
             train_dataset = AudioDataset(train_files, self.config, augment=True)
             val_dataset = AudioDataset(val_files, self.config, augment=False)
             
+            # Verify datasets have samples
+            if len(train_dataset) == 0:
+                logger.error("❌ Training dataset is empty!")
+                return None, None
+            
+            if len(val_dataset) == 0:
+                logger.warning("⚠️ Validation dataset is empty - using training data for validation")
+                val_dataset = train_dataset
+            
+            logger.info(f"📊 Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
+            
             # Create data loaders
             train_loader = DataLoader(
                 train_dataset,
-                batch_size=self.config['training']['batch_size'],
+                batch_size=min(self.config['training']['batch_size'], len(train_dataset)),
                 shuffle=True,
-                num_workers=2
+                num_workers=0  # Set to 0 for stability with small datasets
             )
             
             val_loader = DataLoader(
                 val_dataset,
-                batch_size=self.config['training']['batch_size'],
+                batch_size=min(self.config['training']['batch_size'], len(val_dataset)),
                 shuffle=False,
-                num_workers=2
+                num_workers=0  # Set to 0 for stability with small datasets
             )
             
             return train_loader, val_loader

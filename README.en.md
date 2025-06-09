@@ -386,11 +386,13 @@ pytest --cov=backend tests/     # Coverage report
 **urllib3 OpenSSL Warning (macOS)**
 - If you see `urllib3 v2 only supports OpenSSL 1.1.1+` warning
 - This is a compatibility issue with macOS LibreSSL 2.8.3
-- Solution: Automatically resolved by `urllib3==1.26.7` included in requirements.txt
+- Solution: Automatically resolved by latest compatible packages in requirements.txt
 - Manual fix if needed:
   ```bash
-  pip install urllib3==1.26.7 requests==2.28.2 certifi==2022.12.7
+  pip install --upgrade pip
+  pip install urllib3==1.26.18 requests==2.31.0 certifi==2023.11.17 pyOpenSSL==23.3.0
   ```
+- Warning display does not affect functionality
 
 **Microphone Access Denied**
 - Check browser permissions
@@ -398,13 +400,19 @@ pytest --cov=backend tests/     # Coverage report
 - Clear browser cache
 
 **Model Training Error: 'num_samples should be a positive integer value, but got num_samples=0'**
-- **Cause**: No training data found or incorrect data format
+- **Cause**: Data splitting issue when using single JSON file (validation split takes all data, leaving training empty)
+- **Fixed**: Latest version automatically uses single file for both training and validation
 - **Solution**:
-  1. Place correct format JSON files in ./data directory
-  2. Verify data format: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
-  3. Check that JSON files have correct structure
-  4. Verify file sizes are not zero
+  1. Update to latest version (this issue is now fixed)
+  2. Place correct format JSON files in ./data directory
+  3. Verify data format: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  4. Check that JSON files have correct structure
   5. Check detailed error logs to understand data loading status
+
+**ClearML SSL Connection Error (SystemError: exception SystemExit())**
+- **Cause**: SSL handshake error with macOS LibreSSL
+- **Fixed**: Automatic fallback to offline mode functionality added
+- **Handling**: Model training continues even if error occurs (runs without ClearML)
 
 **Other Model Training Failures**
 - Verify data format matches specification

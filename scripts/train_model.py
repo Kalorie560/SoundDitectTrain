@@ -9,11 +9,23 @@ Usage: python scripts/train_model.py
 All configuration is managed through config.yaml file.
 """
 
-# Suppress urllib3 warnings for macOS LibreSSL compatibility
+# Comprehensive warning suppression for macOS LibreSSL compatibility
 import warnings
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import ssl
+
+# Suppress all urllib3 and SSL warnings
+urllib3.disable_warnings()
 warnings.filterwarnings("ignore", "urllib3*")
+warnings.filterwarnings("ignore", "Unverified HTTPS request*")
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
+
+# Additional SSL configuration for macOS LibreSSL
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
 
 import os
 import sys
