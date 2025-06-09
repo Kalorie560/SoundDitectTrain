@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoundDitect - リアルタイム音声異常検知</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="title">
+                <span class="title-icon">🎵</span>
+                SoundDitect
+            </h1>
+            <p class="subtitle">リアルタイム音声異常検知システム</p>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Control Panel -->
+            <section class="control-panel">
+                <div class="connection-status" id="connectionStatus">
+                    <div class="status-indicator offline" id="statusIndicator"></div>
+                    <span id="statusText">接続中...</span>
+                </div>
+
+                <div class="recording-controls">
+                    <button id="startButton" class="btn btn-primary" disabled>
+                        <span class="btn-icon">🎤</span>
+                        録音開始
+                    </button>
+                    <button id="stopButton" class="btn btn-secondary" disabled>
+                        <span class="btn-icon">⏹️</span>
+                        録音停止
+                    </button>
+                </div>
+
+                <div class="audio-settings">
+                    <div class="setting-group">
+                        <label for="sensitivitySlider">感度設定:</label>
+                        <input type="range" id="sensitivitySlider" min="0.1" max="1.0" step="0.1" value="0.5">
+                        <span id="sensitivityValue">0.5</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Detection Results -->
+            <section class="results-section">
+                <div class="detection-display">
+                    <div class="detection-status" id="detectionStatus">
+                        <div class="status-circle unknown" id="statusCircle"></div>
+                        <div class="status-content">
+                            <h2 id="statusLabel">待機中</h2>
+                            <p id="statusMessage">録音ボタンを押して開始してください</p>
+                        </div>
+                    </div>
+
+                    <div class="confidence-meter">
+                        <label>信頼度:</label>
+                        <div class="confidence-bar">
+                            <div class="confidence-fill" id="confidenceFill"></div>
+                        </div>
+                        <span id="confidenceText">--</span>
+                    </div>
+                </div>
+
+                <!-- Audio Visualization -->
+                <div class="audio-visualization">
+                    <canvas id="audioCanvas" width="600" height="200"></canvas>
+                    <div class="volume-meter">
+                        <label>音量レベル:</label>
+                        <div class="volume-bar">
+                            <div class="volume-fill" id="volumeFill"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Statistics and History -->
+            <section class="statistics-section">
+                <div class="stats-container">
+                    <div class="stat-item">
+                        <h3>検知回数</h3>
+                        <span id="detectionCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <h3>異常検知</h3>
+                        <span id="anomalyCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <h3>正常検知</h3>
+                        <span id="normalCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <h3>稼働時間</h3>
+                        <span id="uptime">00:00:00</span>
+                    </div>
+                </div>
+
+                <div class="history-section">
+                    <h3>検知履歴</h3>
+                    <div class="history-list" id="historyList">
+                        <!-- Detection history will be added here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="system-info">
+                <span>Version: 1.0.0</span>
+                <span id="systemStatus">システム正常</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="closeModal">&times;</span>
+            <h2>エラー</h2>
+            <p id="errorMessage"></p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="audio-processor.js"></script>
+    <script src="websocket-client.js"></script>
+    <script src="ui-controller.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
