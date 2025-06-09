@@ -144,6 +144,7 @@ cd SoundDitect
 ```bash
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install --upgrade pip  # Important: Upgrade pip first
 pip install -r requirements.txt
 ```
 
