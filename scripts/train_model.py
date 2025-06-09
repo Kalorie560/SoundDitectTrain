@@ -4,6 +4,9 @@ Training Script for SoundDitect Model
 
 This script handles model training with ClearML integration and memory-efficient
 data loading for the sound anomaly detection system.
+
+Usage: python scripts/train_model.py
+All configuration is managed through config.yaml file.
 """
 
 import os
@@ -11,7 +14,6 @@ import sys
 import yaml
 import asyncio
 import logging
-import argparse
 from pathlib import Path
 
 # Add backend to Python path
@@ -30,57 +32,78 @@ logger = logging.getLogger(__name__)
 def load_config():
     """Load configuration from config.yaml"""
     config_path = Path(__file__).parent.parent / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
+def validate_config(config):
+    """Validate configuration parameters"""
+    required_sections = ['data', 'training', 'model', 'clearml']
+    for section in required_sections:
+        if section not in config:
+            raise ValueError(f"Missing required configuration section: {section}")
+    
+    # Check for required data paths
+    required_data_keys = ['data_dir', 'output_dir', 'model_save_path']
+    for key in required_data_keys:
+        if key not in config['data']:
+            raise ValueError(f"Missing required data configuration: {key}")
+    
+    logger.info("✅ Configuration validation passed")
+
 async def main():
     """Main training function"""
-    parser = argparse.ArgumentParser(description='Train SoundDitect anomaly detection model')
-    parser.add_argument('--config', type=str, help='Path to config file')
-    parser.add_argument('--data-dir', type=str, help='Path to training data directory')
-    parser.add_argument('--output-dir', type=str, help='Path to output directory')
-    parser.add_argument('--epochs', type=int, help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, help='Training batch size')
+    logger.info("🚀 Starting SoundDitect model training...")
     
-    args = parser.parse_args()
+    # Load and validate configuration
+    try:
+        config = load_config()
+        validate_config(config)
+    except Exception as e:
+        logger.error(f"❌ Configuration error: {e}")
+        logger.error("Please ensure config.yaml exists and contains all required settings.")
+        sys.exit(1)
     
-    # Load configuration
-    config = load_config()
+    # Display configuration info
+    logger.info(f"📂 Data directory: {config['data']['data_dir']}")
+    logger.info(f"📤 Output directory: {config['data']['output_dir']}")
+    logger.info(f"💾 Model save path: {config['data']['model_save_path']}")
+    logger.info(f"🔄 Training epochs: {config['training']['epochs']}")
+    logger.info(f"📦 Batch size: {config['training']['batch_size']}")
     
-    # Override config with command line arguments
-    if args.data_dir:
-        config['data']['data_dir'] = args.data_dir
-    if args.output_dir:
-        config['data']['output_dir'] = args.output_dir
-    if args.epochs:
-        config['training']['epochs'] = args.epochs
-    if args.batch_size:
-        config['training']['batch_size'] = args.batch_size
+    # Create required directories
+    directories_to_create = [
+        config['data']['output_dir'],
+        config['data']['model_save_path'],
+        Path(config['logging']['file']).parent  # Create logs directory
+    ]
     
-    logger.info("Starting SoundDitect model training...")
-    logger.info(f"Data directory: {config['data']['data_dir']}")
-    logger.info(f"Output directory: {config['data']['output_dir']}")
-    
-    # Create directories
-    Path(config['data']['output_dir']).mkdir(parents=True, exist_ok=True)
-    Path(config['data']['model_save_path']).mkdir(parents=True, exist_ok=True)
+    for directory in directories_to_create:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Created directory: {directory}")
     
     # Initialize components
+    logger.info("🔧 Initializing model manager...")
     model_manager = ModelManager(config)
     
     # Start training
     try:
+        logger.info("🎯 Starting model training...")
         success = await model_manager.train_model()
         
         if success:
-            logger.info("Training completed successfully!")
-            logger.info(f"Model saved to: {config['data']['model_save_path']}")
+            logger.info("✅ Training completed successfully!")
+            logger.info(f"💾 Model saved to: {config['data']['model_save_path']}")
+            logger.info("🎉 Training process finished!")
         else:
-            logger.error("Training failed!")
+            logger.error("❌ Training failed!")
             sys.exit(1)
             
     except Exception as e:
-        logger.error(f"Training error: {e}")
+        logger.error(f"💥 Training error: {e}")
+        logger.error("Please check your configuration and data files.")
         sys.exit(1)
 
 if __name__ == "__main__":

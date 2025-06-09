@@ -1,0 +1,2 @@
+# This file ensures the data directory is created when cloning the repository
+# Training data JSON files will be stored in this directory

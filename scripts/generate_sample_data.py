@@ -4,15 +4,28 @@ Sample Data Generator for SoundDitect
 
 This script generates sample training data in the expected JSON format
 with synthetic audio waveforms for testing and development.
+
+Usage: python scripts/generate_sample_data.py
+All configuration is managed through config.yaml file.
 """
 
 import json
 import numpy as np
-import argparse
+import yaml
 from pathlib import Path
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
+
+def load_config():
+    """Load configuration from config.yaml"""
+    config_path = Path(__file__).parent.parent / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
 
 class SampleDataGenerator:
     """Generator for synthetic audio data in the expected JSON format."""
@@ -152,39 +165,54 @@ class SampleDataGenerator:
         logger.info(f"Anomaly ratio: {total_anomaly / (total_normal + total_anomaly):.2%}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate sample audio data for SoundDitect')
-    parser.add_argument('--output-dir', type=str, default='./data', 
-                       help='Output directory for generated data')
-    parser.add_argument('--num-files', type=int, default=10,
-                       help='Number of JSON files to generate')
-    parser.add_argument('--samples-per-file', type=int, default=100,
-                       help='Number of audio samples per file')
-    parser.add_argument('--sample-rate', type=int, default=44100,
-                       help='Sample rate for generated audio')
-    parser.add_argument('--duration', type=float, default=1.0,
-                       help='Duration of each audio sample in seconds')
-    
-    args = parser.parse_args()
-    
+    """Main function to generate sample data using config.yaml settings"""
     # Configure logging
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
-    logger.info("Starting sample data generation...")
-    logger.info(f"Output directory: {args.output_dir}")
-    logger.info(f"Sample rate: {args.sample_rate} Hz")
-    logger.info(f"Duration per sample: {args.duration} seconds")
+    logger.info("🚀 Starting sample data generation...")
+    
+    # Load configuration
+    try:
+        config = load_config()
+    except Exception as e:
+        logger.error(f"❌ Configuration error: {e}")
+        logger.error("Please ensure config.yaml exists and contains all required settings.")
+        sys.exit(1)
+    
+    # Extract configuration values
+    sample_rate = config['audio']['sample_rate']
+    output_dir = config['data']['data_dir']
+    
+    # Sample generation settings (add these to config.yaml if needed)
+    num_files = config.get('sample_generation', {}).get('num_files', 10)
+    samples_per_file = config.get('sample_generation', {}).get('samples_per_file', 100)
+    duration = 1.0  # Fixed 1 second as per requirements
+    
+    logger.info(f"📂 Output directory: {output_dir}")
+    logger.info(f"🎵 Sample rate: {sample_rate} Hz")
+    logger.info(f"⏱️  Duration per sample: {duration} seconds")
+    logger.info(f"📁 Number of files: {num_files}")
+    logger.info(f"📄 Samples per file: {samples_per_file}")
     
     # Create generator and generate dataset
     generator = SampleDataGenerator(
-        sample_rate=args.sample_rate,
-        duration=args.duration
+        sample_rate=sample_rate,
+        duration=duration
     )
     
-    generator.generate_dataset(
-        output_dir=args.output_dir,
-        num_files=args.num_files,
-        samples_per_file=args.samples_per_file
-    )
+    try:
+        generator.generate_dataset(
+            output_dir=output_dir,
+            num_files=num_files,
+            samples_per_file=samples_per_file
+        )
+        logger.info("✅ Sample data generation completed successfully!")
+    except Exception as e:
+        logger.error(f"❌ Data generation error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

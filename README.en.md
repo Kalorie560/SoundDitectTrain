@@ -147,22 +147,44 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. **Generate Sample Data** (Optional)
+3. **ClearML Setup** (Required)
 ```bash
-python scripts/generate_sample_data.py --output-dir ./data
+# Configure ClearML (choose one method)
+
+# Method 1: Automatic setup (recommended)
+python scripts/setup_clearml.py
+
+# Method 2: Manual setup
+clearml-init
+
+# Method 3: Environment variables
+export CLEARML_WEB_HOST=https://app.clear.ml
+export CLEARML_API_HOST=https://api.clear.ml
+export CLEARML_FILES_HOST=https://files.clear.ml
+export CLEARML_API_ACCESS_KEY=your_access_key_here
+export CLEARML_API_SECRET_KEY=your_secret_key_here
 ```
 
-4. **Train Model** (Optional)
+> 🌟 **ClearML Account**: Create account at [https://app.clear.ml](https://app.clear.ml) and get credentials from profile page.
+
+4. **Generate Sample Data** (Optional)
 ```bash
-python scripts/train_model.py --data-dir ./data --epochs 50
+# All settings read from config.yaml
+python scripts/generate_sample_data.py
 ```
 
-5. **Start Application**
+5. **Train Model** (Optional)
+```bash
+# All settings read from config.yaml  
+python scripts/train_model.py
+```
+
+6. **Start Application**
 ```bash
 python run_server.py
 ```
 
-6. **Access Interface**
+7. **Access Interface**
    - Open browser to `http://localhost:8000`
    - Allow microphone access when prompted
    - Click "録音開始" (Start Recording) to begin detection
