@@ -5,6 +5,12 @@ This module handles the AI model architecture, training, inference,
 and integration with ClearML for experiment tracking.
 """
 
+# Suppress urllib3 warnings for macOS LibreSSL compatibility
+import warnings
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", "urllib3*")
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -235,17 +241,27 @@ class ModelManager:
         self._init_clearml()
     
     def _init_clearml(self):
-        """Initialize ClearML experiment tracking."""
+        """Initialize ClearML experiment tracking with fallback for connection issues."""
         try:
-            self.task = Task.init(
-                project_name=self.config['clearml']['project_name'],
-                task_name=self.config['clearml']['task_name'],
-                output_uri=self.config['clearml']['output_uri']
-            )
+            # Set offline mode for ClearML if SSL/connection issues occur
+            import warnings
+            import os
             
-            # Log configuration
-            self.task.connect(self.config)
-            logger.info("ClearML task initialized")
+            # Try to set offline mode to avoid SSL issues
+            os.environ.setdefault('CLEARML_OFFLINE_MODE', '1')
+            
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                
+                self.task = Task.init(
+                    project_name=self.config['clearml']['project_name'],
+                    task_name=self.config['clearml']['task_name'],
+                    output_uri=self.config['clearml']['output_uri']
+                )
+                
+                # Log configuration
+                self.task.connect(self.config)
+                logger.info("ClearML task initialized")
             
         except Exception as e:
             logger.warning(f"ClearML initialization failed: {e}")

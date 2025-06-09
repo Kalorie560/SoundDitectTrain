@@ -9,6 +9,12 @@ Usage: python scripts/train_model.py
 All configuration is managed through config.yaml file.
 """
 
+# Suppress urllib3 warnings for macOS LibreSSL compatibility
+import warnings
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", "urllib3*")
+
 import os
 import sys
 import yaml
@@ -53,6 +59,26 @@ def validate_config(config):
     
     logger.info("✅ Configuration validation passed")
 
+def check_training_data(data_dir):
+    """Check if training data exists and provide helpful instructions if not"""
+    data_path = Path(data_dir)
+    json_files = list(data_path.glob("*.json"))
+    
+    if not json_files:
+        logger.error("❌ No training data found!")
+        logger.error(f"📂 Looking for *.json files in: {data_path.absolute()}")
+        logger.error("")
+        logger.error("🔧 To fix this issue, generate sample data first:")
+        logger.error("   python scripts/generate_sample_data.py")
+        logger.error("")
+        logger.error("📝 Or place your own JSON data files in the data directory.")
+        logger.error("   Expected format: {'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}")
+        logger.error("")
+        raise FileNotFoundError("No training data available. Please generate sample data first.")
+    
+    logger.info(f"✅ Found {len(json_files)} training data files")
+    return True
+
 async def main():
     """Main training function"""
     logger.info("🚀 Starting SoundDitect model training...")
@@ -72,6 +98,13 @@ async def main():
     logger.info(f"💾 Model save path: {config['data']['model_save_path']}")
     logger.info(f"🔄 Training epochs: {config['training']['epochs']}")
     logger.info(f"📦 Batch size: {config['training']['batch_size']}")
+    
+    # Check for training data before proceeding
+    try:
+        check_training_data(config['data']['data_dir'])
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        sys.exit(1)
     
     # Create required directories
     directories_to_create = [

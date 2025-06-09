@@ -168,15 +168,18 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 > 🌟 **ClearML Account**: Create account at [https://app.clear.ml](https://app.clear.ml) and get credentials from profile page.
 
-4. **Generate Sample Data** (Optional)
+4. **Generate Sample Data** (Required for Training)
 ```bash
-# All settings read from config.yaml
+# Generate sample training data (all settings read from config.yaml)
 python scripts/generate_sample_data.py
 ```
 
+> ⚠️ **Important**: If you plan to train a model, you must first generate sample data or place your own JSON data files in the `./data` directory.
+
 5. **Train Model** (Optional)
 ```bash
-# All settings read from config.yaml  
+# Train model (all settings read from config.yaml)
+# Note: Sample data generation is required before training
 python scripts/train_model.py
 ```
 
@@ -375,11 +378,11 @@ pytest --cov=backend tests/     # Coverage report
 
 **urllib3 OpenSSL Warning (macOS)**
 - If you see `urllib3 v2 only supports OpenSSL 1.1.1+` warning
-- This is a compatibility issue with macOS LibreSSL
-- Solution: Automatically resolved by `urllib3==1.26.18` included in requirements.txt
+- This is a compatibility issue with macOS LibreSSL 2.8.3
+- Solution: Automatically resolved by `urllib3==1.26.7` included in requirements.txt
 - Manual fix if needed:
   ```bash
-  pip install urllib3==1.26.18
+  pip install urllib3==1.26.7 requests==2.28.2 certifi==2022.12.7
   ```
 
 **Microphone Access Denied**
@@ -387,7 +390,17 @@ pytest --cov=backend tests/     # Coverage report
 - Ensure HTTPS in production
 - Clear browser cache
 
-**Model Training Fails**
+**Model Training Error: 'num_samples should be a positive integer value, but got num_samples=0'**
+- **Cause**: No training data found (no *.json files in ./data directory)
+- **Solution**:
+  1. Generate sample data:
+     ```bash
+     python scripts/generate_sample_data.py
+     ```
+  2. Or place your own JSON data files in ./data directory
+  3. Data format: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+
+**Other Model Training Failures**
 - Verify data format matches specification
 - Check available memory
 - Reduce batch size if needed
