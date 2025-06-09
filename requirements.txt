@@ -1,5 +1,11 @@
 # IMPORTANT: Run 'pip install --upgrade pip' before installing these dependencies
 # This ensures compatibility with all packages, especially PyTorch and audio libraries
+#
+# If you encounter 'ModuleNotFoundError: No module named yaml', run:
+# pip install pyyaml==6.0.1
+
+# Essential Dependencies (install first)
+pyyaml==6.0.1
 
 # Core Dependencies
 fastapi==0.104.1
@@ -20,7 +26,6 @@ clearml==1.13.2
 
 # Data Processing
 pandas==2.1.3
-pyyaml==6.0.1
 soundfile==0.12.1
 
 # Audio Processing

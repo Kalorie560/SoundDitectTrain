@@ -352,6 +352,46 @@ Edit the `config.yaml` file to customize:
 
 ---
 
+## トラブルシューティング
+
+### よくある問題
+
+**ModuleNotFoundError: No module named 'yaml'**
+- PyYAMLが正しくインストールされていない場合に発生します
+- 解決方法1: 依存関係を再インストール:
+  ```bash
+  pip install --upgrade pip
+  pip uninstall pyyaml
+  pip install pyyaml==6.0.1
+  pip install -r requirements.txt
+  ```
+- 解決方法2: 仮想環境をクリーンアップ:
+  ```bash
+  deactivate
+  rm -rf venv
+  python -m venv venv
+  source venv/bin/activate  # Windows: venv\Scripts\activate
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+
+**マイクアクセス拒否エラー**
+- ブラウザの許可設定を確認
+- 本番環境ではHTTPSを使用
+- ブラウザキャッシュをクリア
+
+**モデル学習エラー**
+- データ形式が仕様に合っているか確認
+- 利用可能メモリを確認
+- 必要に応じてバッチサイズを削減
+
+**WebSocket接続エラー**
+- ファイアウォール設定を確認
+- サーバーが動作しているか確認
+- ブラウザの開発者コンソールを確認
+
+---
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
