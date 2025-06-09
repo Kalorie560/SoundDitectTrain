@@ -74,17 +74,20 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 > 🌟 **ClearMLアカウント**: [https://app.clear.ml](https://app.clear.ml) でアカウント作成後、プロフィールページから認証情報を取得してください。
 
-#### 3. サンプルデータ生成（オプション）
+#### 3. サンプルデータ生成（学習前に必須）
 
 ```bash
 # サンプル学習データを生成（すべての設定はconfig.yamlから読み込まれます）
 python scripts/generate_sample_data.py
 ```
 
+> ⚠️ **重要**: モデル学習を行う場合は、まずサンプルデータを生成するか、独自のJSONデータファイルを`./data`ディレクトリに配置してください。
+
 #### 4. モデル学習（オプション）
 
 ```bash
 # モデルを学習（すべての設定はconfig.yamlから読み込まれます）
+# 注意: 事前にサンプルデータ生成が必要です
 python scripts/train_model.py
 ```
 
@@ -391,11 +394,11 @@ Edit the `config.yaml` file to customize:
 
 **urllib3 OpenSSL警告（macOS）**
 - `urllib3 v2 only supports OpenSSL 1.1.1+` 警告が表示される場合
-- macOSのLibreSSLとの互換性問題です
-- 解決方法: requirements.txtに含まれる`urllib3==1.26.18`により自動解決されます
+- macOSのLibreSSL 2.8.3との互換性問題です
+- 解決方法: requirements.txtに含まれる`urllib3==1.26.7`により自動解決されます
 - 手動で修正する場合:
   ```bash
-  pip install urllib3==1.26.18
+  pip install urllib3==1.26.7 requests==2.28.2 certifi==2022.12.7
   ```
 
 **マイクアクセス拒否エラー**
@@ -403,7 +406,17 @@ Edit the `config.yaml` file to customize:
 - 本番環境ではHTTPSを使用
 - ブラウザキャッシュをクリア
 
-**モデル学習エラー**
+**モデル学習エラー: 'num_samples should be a positive integer value, but got num_samples=0'**
+- **原因**: 学習データが見つからない（./dataディレクトリに*.jsonファイルがない）
+- **解決方法**:
+  1. サンプルデータを生成:
+     ```bash
+     python scripts/generate_sample_data.py
+     ```
+  2. または独自のJSONデータファイルを./dataディレクトリに配置
+  3. データ形式: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+
+**その他のモデル学習エラー**
 - データ形式が仕様に合っているか確認
 - 利用可能メモリを確認
 - 必要に応じてバッチサイズを削減
