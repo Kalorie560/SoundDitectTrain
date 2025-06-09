@@ -424,11 +424,13 @@ Edit the `config.yaml` file to customize:
 **urllib3 OpenSSL警告（macOS）**
 - `urllib3 v2 only supports OpenSSL 1.1.1+` 警告が表示される場合
 - macOSのLibreSSL 2.8.3との互換性問題です
-- 解決方法: requirements.txtに含まれる`urllib3==1.26.7`により自動解決されます
+- 解決方法: requirements.txtに含まれる最新の互換パッケージにより自動解決されます
 - 手動で修正する場合:
   ```bash
-  pip install urllib3==1.26.7 requests==2.28.2 certifi==2022.12.7
+  pip install --upgrade pip
+  pip install urllib3==1.26.18 requests==2.31.0 certifi==2023.11.17 pyOpenSSL==23.3.0
   ```
+- 警告は表示されても機能に影響はありません
 
 **マイクアクセス拒否エラー**
 - ブラウザの許可設定を確認
@@ -436,13 +438,19 @@ Edit the `config.yaml` file to customize:
 - ブラウザキャッシュをクリア
 
 **モデル学習エラー: 'num_samples should be a positive integer value, but got num_samples=0'**
-- **原因**: 学習データが見つからない、またはデータ形式が正しくない
+- **原因**: 単一JSONファイル使用時のデータ分割問題（検証用分割が全データを取得し、学習用が空になる）
+- **修正済み**: 最新版では自動的に単一ファイルを学習・検証両方に使用するよう修正
 - **解決方法**:
-  1. ./dataディレクトリに正しい形式のJSONファイルを配置
-  2. データ形式を確認: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
-  3. JSONファイルが正しい構造になっているか確認
-  4. ファイルサイズが0でないか確認
+  1. 最新版に更新（この問題は修正済み）
+  2. ./dataディレクトリに正しい形式のJSONファイルを配置
+  3. データ形式を確認: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  4. JSONファイルが正しい構造になっているか確認
   5. 詳細なエラーログを確認してデータ読み込み状況を把握
+
+**ClearML SSL接続エラー（SystemError: exception SystemExit()）**
+- **原因**: macOS LibreSSLとの SSL handshake エラー
+- **修正済み**: 自動的にオフラインモードにフォールバックする機能を追加
+- **対処**: エラーが発生してもモデル学習は継続されます（ClearMLなしで実行）
 
 **その他のモデル学習エラー**
 - データ形式が仕様に合っているか確認
