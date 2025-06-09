@@ -168,18 +168,30 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 > 🌟 **ClearML Account**: Create account at [https://app.clear.ml](https://app.clear.ml) and get credentials from profile page.
 
-4. **Generate Sample Data** (Required for Training)
-```bash
-# Generate sample training data (all settings read from config.yaml)
-python scripts/generate_sample_data.py
-```
+4. **Prepare Training Data**
 
-> ⚠️ **Important**: If you plan to train a model, you must first generate sample data or place your own JSON data files in the `./data` directory.
+> 📝 **Important**: To train models, place your JSON data files in the `./data` directory.
+
+**Data Format Requirements:**
+```json
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44,100 audio samples (1 second)
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // Normal sound
+    "NG"    // Anomaly sound
+  ],
+  "fs": 44100,        // Sampling frequency
+  "metric": "RMS"     // Measurement metric
+}
+```
 
 5. **Train Model** (Optional)
 ```bash
 # Train model (all settings read from config.yaml)
-# Note: Sample data generation is required before training
+# Note: Training data must be placed in data directory first
 python scripts/train_model.py
 ```
 
@@ -207,12 +219,8 @@ Training data must be provided as JSON files with the following structure:
     "OK",   // Normal sound
     "NG"    // Anomalous sound
   ],
-  "fs": 44100,        // Sampling frequency
-  "metric": "RMS",    // Measurement metric
-  "auto_labels": [    // Auto-generated labels
-    "OK",
-    "NG"
-  ]
+  "fs": 44100,        // Sampling frequency (required)
+  "metric": "RMS"     // Measurement metric (optional)
 }
 ```
 
@@ -224,8 +232,7 @@ Training data must be provided as JSON files with the following structure:
 - `waveforms`: Array of arrays containing 44,100 float values representing 1 second of audio at 44.1kHz
 - `labels`: Array of strings ("OK" = Normal, "NG" = Anomaly)
 - `fs`: Sampling frequency (must be 44100)
-- `metric`: Measurement metric used for analysis
-- `auto_labels`: Copy of labels array for compatibility
+- `metric`: Measurement metric used for analysis (optional)
 
 **Memory Efficiency:**
 - Data is loaded using generators to avoid loading entire dataset into memory
@@ -391,14 +398,13 @@ pytest --cov=backend tests/     # Coverage report
 - Clear browser cache
 
 **Model Training Error: 'num_samples should be a positive integer value, but got num_samples=0'**
-- **Cause**: No training data found (no *.json files in ./data directory)
+- **Cause**: No training data found or incorrect data format
 - **Solution**:
-  1. Generate sample data:
-     ```bash
-     python scripts/generate_sample_data.py
-     ```
-  2. Or place your own JSON data files in ./data directory
-  3. Data format: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  1. Place correct format JSON files in ./data directory
+  2. Verify data format: `{'waveforms': [[...]], 'labels': ['OK', 'NG'], 'fs': 44100}`
+  3. Check that JSON files have correct structure
+  4. Verify file sizes are not zero
+  5. Check detailed error logs to understand data loading status
 
 **Other Model Training Failures**
 - Verify data format matches specification
