@@ -136,13 +136,27 @@ SoundDitect/
 学習データは以下のJSON形式で提供されます：
 
 ```json
-[
-  {
-    "Waveform": [0.1, -0.2, 0.3, ...],  // 44100個の音声サンプル（1秒分）
-    "Labels": 0  // 0: 正常, 1: 異常
-  }
-]
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44100個の音声サンプル（1秒分）
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // 正常音
+    "NG"    // 異常音
+  ],
+  "fs": 44100,        // サンプリング周波数
+  "metric": "RMS",    // 測定指標
+  "auto_labels": [    // 自動生成ラベル
+    "OK",
+    "NG"
+  ]
+}
 ```
+
+**重要**: システムは新旧両方のデータ形式に対応しています：
+- **新形式**: `{"waveforms": [...], "labels": ["OK", "NG"]}` (推奨)
+- **旧形式**: `[{"Waveform": [...], "Labels": 0}]` (互換性のため)
 
 ### アーキテクチャ解説
 
@@ -373,6 +387,15 @@ Edit the `config.yaml` file to customize:
   source venv/bin/activate  # Windows: venv\Scripts\activate
   pip install --upgrade pip
   pip install -r requirements.txt
+  ```
+
+**urllib3 OpenSSL警告（macOS）**
+- `urllib3 v2 only supports OpenSSL 1.1.1+` 警告が表示される場合
+- macOSのLibreSSLとの互換性問題です
+- 解決方法: requirements.txtに含まれる`urllib3==1.26.18`により自動解決されます
+- 手動で修正する場合:
+  ```bash
+  pip install urllib3==1.26.18
   ```
 
 **マイクアクセス拒否エラー**

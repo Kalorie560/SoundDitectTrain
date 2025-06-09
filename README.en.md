@@ -195,21 +195,34 @@ python run_server.py
 Training data must be provided as JSON files with the following structure:
 
 ```json
-[
-  {
-    "Waveform": [0.1234, -0.2345, 0.3456, ...],
-    "Labels": 0
-  },
-  {
-    "Waveform": [0.9876, -0.8765, 0.7654, ...],
-    "Labels": 1
-  }
-]
+{
+  "waveforms": [
+    [0.0, 0.01, -0.01, 0.02, ...],  // 44,100 audio samples (1 second)
+    [0.0, 0.0, 0.02, 0.05, ...]
+  ],
+  "labels": [
+    "OK",   // Normal sound
+    "NG"    // Anomalous sound
+  ],
+  "fs": 44100,        // Sampling frequency
+  "metric": "RMS",    // Measurement metric
+  "auto_labels": [    // Auto-generated labels
+    "OK",
+    "NG"
+  ]
+}
 ```
 
+**Important**: The system supports both data formats for compatibility:
+- **New format**: `{"waveforms": [...], "labels": ["OK", "NG"]}` (recommended)
+- **Legacy format**: `[{"Waveform": [...], "Labels": 0}]` (backward compatibility)
+
 **Fields:**
-- `Waveform`: Array of 44,100 float values representing 1 second of audio at 44.1kHz
-- `Labels`: Integer (0 = Normal, 1 = Anomaly)
+- `waveforms`: Array of arrays containing 44,100 float values representing 1 second of audio at 44.1kHz
+- `labels`: Array of strings ("OK" = Normal, "NG" = Anomaly)
+- `fs`: Sampling frequency (must be 44100)
+- `metric`: Measurement metric used for analysis
+- `auto_labels`: Copy of labels array for compatibility
 
 **Memory Efficiency:**
 - Data is loaded using generators to avoid loading entire dataset into memory
@@ -358,6 +371,15 @@ pytest --cov=backend tests/     # Coverage report
   source venv/bin/activate  # On Windows: venv\Scripts\activate
   pip install --upgrade pip
   pip install -r requirements.txt
+  ```
+
+**urllib3 OpenSSL Warning (macOS)**
+- If you see `urllib3 v2 only supports OpenSSL 1.1.1+` warning
+- This is a compatibility issue with macOS LibreSSL
+- Solution: Automatically resolved by `urllib3==1.26.18` included in requirements.txt
+- Manual fix if needed:
+  ```bash
+  pip install urllib3==1.26.18
   ```
 
 **Microphone Access Denied**
