@@ -341,6 +341,25 @@ pytest --cov=backend tests/     # Coverage report
 
 ### Common Issues
 
+**ModuleNotFoundError: No module named 'yaml'**
+- This occurs when PyYAML is not properly installed
+- Solution 1: Reinstall dependencies:
+  ```bash
+  pip install --upgrade pip
+  pip uninstall pyyaml
+  pip install pyyaml==6.0.1
+  pip install -r requirements.txt
+  ```
+- Solution 2: Clean virtual environment:
+  ```bash
+  deactivate
+  rm -rf venv
+  python -m venv venv
+  source venv/bin/activate  # On Windows: venv\Scripts\activate
+  pip install --upgrade pip
+  pip install -r requirements.txt
+  ```
+
 **Microphone Access Denied**
 - Check browser permissions
 - Ensure HTTPS in production
