@@ -3,9 +3,14 @@
 #
 # If you encounter 'ModuleNotFoundError: No module named yaml', run:
 # pip install pyyaml==6.0.1
+#
+# macOS LibreSSL Compatibility: urllib3 1.26.x is used for compatibility with macOS LibreSSL
 
 # Essential Dependencies (install first)
 pyyaml==6.0.1
+
+# macOS Compatibility (fixes urllib3 OpenSSL warning)
+urllib3==1.26.18
 
 # Core Dependencies
 fastapi==0.104.1

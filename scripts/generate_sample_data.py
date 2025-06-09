@@ -113,7 +113,7 @@ class SampleDataGenerator:
     
     def generate_dataset(self, output_dir, num_files=10, samples_per_file=100):
         """
-        Generate a complete dataset with multiple JSON files.
+        Generate a complete dataset with multiple JSON files in the new format.
         
         Args:
             output_dir: Directory to save the JSON files
@@ -127,7 +127,8 @@ class SampleDataGenerator:
         total_anomaly = 0
         
         for file_idx in range(num_files):
-            file_data = []
+            waveforms = []
+            labels = []
             
             for sample_idx in range(samples_per_file):
                 # 70% normal, 30% anomaly
@@ -135,20 +136,24 @@ class SampleDataGenerator:
                 
                 if is_anomaly:
                     waveform = self.generate_anomaly_waveform()
-                    label = 1
+                    label = "NG"
                     total_anomaly += 1
                 else:
                     waveform = self.generate_normal_waveform()
-                    label = 0
+                    label = "OK"
                     total_normal += 1
                 
-                # Create data entry in expected format
-                data_entry = {
-                    "Waveform": waveform,
-                    "Labels": label
-                }
-                
-                file_data.append(data_entry)
+                waveforms.append(waveform)
+                labels.append(label)
+            
+            # Create data in new format matching user specification
+            file_data = {
+                "waveforms": waveforms,
+                "labels": labels,
+                "fs": self.sample_rate,
+                "metric": "RMS",
+                "auto_labels": labels.copy()  # Copy of labels as auto_labels
+            }
             
             # Save file
             filename = output_path / f"audio_data_{file_idx:03d}.json"

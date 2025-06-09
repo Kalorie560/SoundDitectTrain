@@ -160,8 +160,18 @@ class AudioDataset(Dataset):
             try:
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                    for sample_idx in range(len(data)):
-                        self.data_indices.append((file_idx, sample_idx))
+                    # Handle both old format (list of entries) and new format (waveforms/labels arrays)
+                    if isinstance(data, list):
+                        # Old format: [{"Waveform": [...], "Labels": 0}, ...]
+                        for sample_idx in range(len(data)):
+                            self.data_indices.append((file_idx, sample_idx))
+                    elif isinstance(data, dict) and 'waveforms' in data:
+                        # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
+                        num_samples = len(data['waveforms'])
+                        for sample_idx in range(num_samples):
+                            self.data_indices.append((file_idx, sample_idx))
+                    else:
+                        logger.warning(f"Unknown data format in {file_path}")
             except Exception as e:
                 logger.warning(f"Could not index file {file_path}: {e}")
     
@@ -175,10 +185,27 @@ class AudioDataset(Dataset):
         try:
             with open(self.data_files[file_idx], 'r') as f:
                 data = json.load(f)
-                sample = data[sample_idx]
             
-            waveform = np.array(sample['Waveform'], dtype=np.float32)
-            label = sample['Labels']
+            if isinstance(data, list):
+                # Old format: [{"Waveform": [...], "Labels": 0}, ...]
+                sample = data[sample_idx]
+                waveform = np.array(sample['Waveform'], dtype=np.float32)
+                label = sample['Labels']
+            elif isinstance(data, dict) and 'waveforms' in data:
+                # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
+                waveform = np.array(data['waveforms'][sample_idx], dtype=np.float32)
+                label_str = data['labels'][sample_idx]
+                
+                # Convert string labels to integers
+                if label_str == "OK":
+                    label = 0
+                elif label_str == "NG":
+                    label = 1
+                else:
+                    logger.warning(f"Unknown label '{label_str}', defaulting to 0")
+                    label = 0
+            else:
+                raise ValueError(f"Unknown data format in file {self.data_files[file_idx]}")
             
             # Apply augmentation if training
             if self.augment:
