@@ -35,7 +35,8 @@ import asyncio
 import json
 from typing import Tuple, Optional, Dict, Any
 import time
-from clearml import Task, Logger
+# ClearML removed for run_server.py stability
+# from clearml import Task, Logger
 
 logger = logging.getLogger(__name__)
 
@@ -299,62 +300,12 @@ class ModelManager:
         self._init_clearml()
     
     def _init_clearml(self):
-        """Initialize ClearML experiment tracking with robust error handling and resource management."""
-        # Skip ClearML initialization on macOS to prevent semaphore leaks
-        import platform
-        if platform.system() == 'Darwin':  # macOS
-            logger.info("🍎 macOS detected: Skipping ClearML to prevent resource leaks")
-            self.task = None
-            return
-        
-        try:
-            import warnings
-            import os
-            import sys
-            
-            # Comprehensive warning suppression to avoid SSL issues
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                
-                # Suppress urllib3 warnings
-                import urllib3
-                urllib3.disable_warnings()
-                
-                # Try ClearML initialization with timeout
-                try:
-                    # Disable ClearML's multiprocessing features to prevent resource leaks
-                    os.environ['CLEARML_AGENT_DISABLE_SSH'] = '1'
-                    os.environ['CLEARML_DISABLE_RESOURCE_MONITORING'] = '1'
-                    
-                    # First try normal initialization
-                    self.task = Task.init(
-                        project_name=self.config['clearml']['project_name'],
-                        task_name=self.config['clearml']['task_name'],
-                        output_uri=self.config['clearml']['output_uri'],
-                        reuse_last_task_id=False
-                    )
-                    
-                    # Log configuration if successful
-                    if self.task:
-                        self.task.connect(self.config)
-                        logger.info("✅ ClearML task initialized successfully")
-                        return
-                        
-                except SystemExit:
-                    # Handle SystemExit exception that can occur with SSL issues
-                    logger.warning("⚠️ ClearML initialization caused SystemExit - switching to offline mode")
-                    self.task = None
-                except Exception as init_error:
-                    logger.warning(f"⚠️ ClearML initialization failed: {init_error}")
-                    self.task = None
-            
-        except Exception as e:
-            logger.warning(f"⚠️ ClearML setup error: {e}")
-            self.task = None
-        
-        # If initialization failed, log that we're continuing without ClearML
-        if self.task is None:
-            logger.info("🔄 Continuing without ClearML experiment tracking")
+        """Initialize ClearML experiment tracking - DISABLED for run_server.py stability."""
+        # Completely disable ClearML for run_server.py to prevent connection issues
+        # and resource leaks. This improves stability and reduces dependencies.
+        logger.info("🚫 ClearML disabled for run_server.py - using local-only mode")
+        self.task = None
+        return
     
     def create_model(self) -> SoundAnomalyDetector:
         """Create a new model instance."""
@@ -506,29 +457,62 @@ class ModelManager:
     def _get_baseline_prediction(self, audio_data: np.ndarray) -> Tuple[int, float]:
         """
         Generate a baseline prediction based on simple audio characteristics.
-        This provides a fallback when the model fails.
+        This provides a fallback when the model fails and ensures detection results are always output.
         """
         try:
             if audio_data is None or len(audio_data) == 0:
+                logger.info("🎯 Baseline prediction for empty data: Normal (0.5)")
                 return 0, 0.5
             
-            # Simple rule-based prediction for demonstration
+            # Enhanced rule-based prediction for better demonstration
             rms = np.sqrt(np.mean(audio_data ** 2))
             max_amplitude = np.max(np.abs(audio_data))
+            mean_amplitude = np.mean(np.abs(audio_data))
             
-            # Very basic heuristic: louder sounds have higher chance of anomaly
-            if max_amplitude > 0.5 or rms > 0.1:
+            # Calculate variance for more sophisticated detection
+            variance = np.var(audio_data)
+            
+            # Multi-factor heuristic for anomaly detection
+            anomaly_score = 0.0
+            
+            # Factor 1: High amplitude suggests potential anomaly
+            if max_amplitude > 0.3:
+                anomaly_score += max_amplitude * 0.4
+            
+            # Factor 2: High RMS energy
+            if rms > 0.05:
+                anomaly_score += rms * 0.3
+            
+            # Factor 3: High variance suggests irregular sound
+            if variance > 0.01:
+                anomaly_score += variance * 0.2
+            
+            # Factor 4: Dynamic range (difference between max and mean)
+            dynamic_range = max_amplitude - mean_amplitude
+            if dynamic_range > 0.1:
+                anomaly_score += dynamic_range * 0.1
+            
+            # Clamp anomaly score between 0 and 1
+            anomaly_score = min(1.0, max(0.0, anomaly_score))
+            
+            # Determine prediction based on threshold
+            threshold = 0.4
+            if anomaly_score > threshold:
                 prediction = 1  # Anomaly
-                confidence = min(0.7, max_amplitude + rms)
+                confidence = min(0.8, 0.5 + anomaly_score)
             else:
                 prediction = 0  # Normal
-                confidence = 0.6
+                confidence = max(0.3, 0.7 - anomaly_score)
             
-            logger.info(f"🎯 Baseline prediction: {prediction} (confidence: {confidence:.3f}, RMS: {rms:.4f}, Max: {max_amplitude:.4f})")
+            logger.info(f"🎯 Baseline prediction: {prediction} (confidence: {confidence:.3f})")
+            logger.debug(f"   Audio metrics - RMS: {rms:.4f}, Max: {max_amplitude:.4f}, Variance: {variance:.4f}, Score: {anomaly_score:.3f}")
+            
             return prediction, confidence
             
         except Exception as e:
             logger.error(f"❌ Baseline prediction error: {e}")
+            # Return a safe default that ensures results are always output
+            logger.info("🎯 Fallback prediction: Normal (0.5)")
             return 0, 0.5
     
     async def train_model(self) -> bool:
@@ -570,16 +554,10 @@ class ModelManager:
                 # Validation phase
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
                 
-                # Log epoch-level metrics to ClearML if available
-                try:
-                    if self.task and hasattr(self.task, 'logger'):
-                        self.task.logger.report_scalar("Loss", "Train_Epoch", value=train_loss, iteration=epoch)
-                        self.task.logger.report_scalar("Loss", "Validation", value=val_loss, iteration=epoch)
-                        self.task.logger.report_scalar("Accuracy", "Validation", value=val_acc, iteration=epoch)
-                        self.task.logger.report_scalar("Training", "Epoch", value=epoch, iteration=global_iteration)
-                except Exception as log_error:
-                    # Continue training even if logging fails
-                    logger.debug(f"ClearML logging error: {log_error}")
+                # ClearML logging disabled for stability
+                # Log epoch-level metrics locally instead
+                logger.info(f"📊 Training metrics - Epoch {epoch}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
+                logger.debug(f"Training iteration: {global_iteration}, Processing time: {time.time():.2f}s")
                 
                 logger.info(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
                 
@@ -691,17 +669,9 @@ class ModelManager:
             total_loss += loss.item()
             global_iteration += 1
             
-            # Log per-iteration metrics to ClearML for proper iteration tracking
-            try:
-                if self.task and hasattr(self.task, 'logger'):
-                    # Log every few iterations to avoid spamming
-                    if batch_idx % max(1, len(train_loader) // 10) == 0:
-                        self.task.logger.report_scalar("Loss", "Train_Iteration", value=loss.item(), iteration=global_iteration)
-                        self.task.logger.report_scalar("Training", "Batch", value=batch_idx, iteration=global_iteration)
-                        self.task.logger.report_scalar("Training", "Learning_Rate", value=optimizer.param_groups[0]['lr'], iteration=global_iteration)
-            except Exception as log_error:
-                # Continue training even if logging fails
-                logger.debug(f"ClearML iteration logging error: {log_error}")
+            # Log training progress locally (ClearML disabled)
+            if batch_idx % max(1, len(train_loader) // 10) == 0:
+                logger.debug(f"Training batch {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, LR: {optimizer.param_groups[0]['lr']:.6f}")
             
             # Allow other coroutines to run
             if batch_idx % 10 == 0:

@@ -264,17 +264,26 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                         
                     except Exception as e:
                         logger.error(f"❌ Audio processing error: {e}", exc_info=True)
-                        error_message = {
-                            "type": "error",
+                        
+                        # Send a safe fallback result instead of just an error
+                        # This ensures the frontend always gets detection results
+                        fallback_result = {
+                            "type": "detection_result",
                             "session_id": recording_session,
-                            "message": f"音声処理エラー: {str(e)}",
-                            "timestamp": asyncio.get_event_loop().time()
+                            "timestamp": asyncio.get_event_loop().time(),
+                            "prediction": 0,  # Default to normal
+                            "confidence": 0.1,  # Low confidence indicates error
+                            "status": "ERROR",
+                            "message": "処理エラー - 安全な結果を返しています",
+                            "processing_time_ms": 0,
+                            "audio_length": 0,
+                            "error": f"音声処理エラー: {str(e)}"
                         }
                         try:
-                            await websocket.send_json(error_message)
-                            logger.info("ℹ️ Error message sent to client")
+                            await websocket.send_json(fallback_result)
+                            logger.info("✅ Fallback detection result sent to maintain system continuity")
                         except Exception as send_error:
-                            logger.error(f"❌ Failed to send error message: {send_error}")
+                            logger.error(f"❌ Failed to send fallback result: {send_error}")
                 else:
                     # Audio data received without active session - log for debugging
                     logger.debug(f"⏸️ Ignoring audio data - Session active: {is_processing}, "
