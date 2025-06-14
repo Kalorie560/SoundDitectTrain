@@ -55,10 +55,7 @@ audio_processor = AudioProcessor(config)
 model_manager = ModelManager(config)
 websocket_manager = WebSocketManager()
 
-# Mount static files (frontend)
-frontend_path = Path(__file__).parent.parent / "frontend"
-if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+# Note: Static files will be mounted after all API routes and WebSocket endpoints are defined
 
 @app.on_event("startup")
 async def startup_event():
@@ -219,6 +216,12 @@ async def get_stats():
         "total_predictions": getattr(model_manager, 'prediction_count', 0),
         "uptime": getattr(app.state, 'start_time', 0)
     }
+
+# Mount static files (frontend) - This must be done AFTER all API routes and WebSocket endpoints
+# to prevent static file handler from intercepting API requests
+frontend_path = Path(__file__).parent.parent / "frontend"
+if frontend_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
