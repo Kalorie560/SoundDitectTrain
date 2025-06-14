@@ -464,20 +464,22 @@ class ModelManager:
             # Training loop
             best_val_loss = float('inf')
             patience_counter = 0
+            global_iteration = 0  # Track iterations across all epochs for ClearML
             
             for epoch in range(self.config['training']['epochs']):
                 # Training phase
-                train_loss = await self._train_epoch(train_loader, criterion, optimizer)
+                train_loss, global_iteration = await self._train_epoch(train_loader, criterion, optimizer, epoch, global_iteration)
                 
                 # Validation phase
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
                 
-                # Log metrics to ClearML if available
+                # Log epoch-level metrics to ClearML if available
                 try:
                     if self.task and hasattr(self.task, 'logger'):
-                        self.task.logger.report_scalar("Loss", "Train", value=train_loss, iteration=epoch)
+                        self.task.logger.report_scalar("Loss", "Train_Epoch", value=train_loss, iteration=epoch)
                         self.task.logger.report_scalar("Loss", "Validation", value=val_loss, iteration=epoch)
                         self.task.logger.report_scalar("Accuracy", "Validation", value=val_acc, iteration=epoch)
+                        self.task.logger.report_scalar("Training", "Epoch", value=epoch, iteration=global_iteration)
                 except Exception as log_error:
                     # Continue training even if logging fails
                     logger.debug(f"ClearML logging error: {log_error}")
@@ -575,7 +577,7 @@ class ModelManager:
             logger.error(f"Error creating data loaders: {e}")
             return None, None
     
-    async def _train_epoch(self, train_loader: DataLoader, criterion, optimizer) -> float:
+    async def _train_epoch(self, train_loader: DataLoader, criterion, optimizer, epoch: int, global_iteration: int) -> Tuple[float, int]:
         """Train for one epoch."""
         self.model.train()
         total_loss = 0.0
@@ -590,12 +592,25 @@ class ModelManager:
             optimizer.step()
             
             total_loss += loss.item()
+            global_iteration += 1
+            
+            # Log per-iteration metrics to ClearML for proper iteration tracking
+            try:
+                if self.task and hasattr(self.task, 'logger'):
+                    # Log every few iterations to avoid spamming
+                    if batch_idx % max(1, len(train_loader) // 10) == 0:
+                        self.task.logger.report_scalar("Loss", "Train_Iteration", value=loss.item(), iteration=global_iteration)
+                        self.task.logger.report_scalar("Training", "Batch", value=batch_idx, iteration=global_iteration)
+                        self.task.logger.report_scalar("Training", "Learning_Rate", value=optimizer.param_groups[0]['lr'], iteration=global_iteration)
+            except Exception as log_error:
+                # Continue training even if logging fails
+                logger.debug(f"ClearML iteration logging error: {log_error}")
             
             # Allow other coroutines to run
             if batch_idx % 10 == 0:
                 await asyncio.sleep(0)
         
-        return total_loss / len(train_loader)
+        return total_loss / len(train_loader), global_iteration
     
     async def _validate_epoch(self, val_loader: DataLoader, criterion) -> Tuple[float, float]:
         """Validate for one epoch."""
