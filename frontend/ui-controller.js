@@ -257,6 +257,26 @@ class UIController {
     }
 
     /**
+     * Update offline recording state
+     */
+    setOfflineRecordingState(isRecording) {
+        this.state.isRecording = isRecording;
+        
+        const offlineStartBtn = document.getElementById('offlineStartButton');
+        const offlineStopBtn = document.getElementById('offlineStopButton');
+        
+        if (offlineStartBtn && offlineStopBtn) {
+            if (isRecording) {
+                offlineStartBtn.disabled = true;
+                offlineStopBtn.disabled = false;
+            } else {
+                offlineStartBtn.disabled = false;
+                offlineStopBtn.disabled = true;
+            }
+        }
+    }
+
+    /**
      * Update detection result
      */
     updateDetectionResult(result) {
