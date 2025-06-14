@@ -321,6 +321,15 @@ class SoundDitectApp {
         try {
             console.log('Detection result received:', result);
             
+            // Log detailed information for debugging
+            const timestamp = new Date(result.timestamp * 1000).toLocaleTimeString();
+            console.log(`[${timestamp}] Prediction: ${result.prediction}, Confidence: ${result.confidence.toFixed(3)}, Status: ${result.status}`);
+            
+            // Check for errors in the result
+            if (result.error) {
+                console.warn('Detection result contains error:', result.error);
+            }
+            
             // Update UI with result
             this.uiController.updateDetectionResult(result);
             
@@ -329,12 +338,17 @@ class SoundDitectApp {
             const adjustedConfidence = result.confidence * sensitivity;
             
             // Log significant detections
-            if (result.prediction === 1) { // Anomaly detected
-                console.warn(`Anomaly detected! Confidence: ${result.confidence.toFixed(2)}`);
+            if (result.prediction === 1 && result.confidence > 0.5) { // Anomaly detected with reasonable confidence
+                console.warn(`🚨 Anomaly detected! Confidence: ${result.confidence.toFixed(3)}, Adjusted: ${adjustedConfidence.toFixed(3)}`);
                 
                 // Could add notification sound or vibration here
                 this.notifyAnomalyDetection(result);
+            } else if (result.prediction === 0) {
+                console.log(`✅ Normal sound detected. Confidence: ${result.confidence.toFixed(3)}`);
             }
+            
+            // Track result processing performance
+            this.trackDetectionPerformance(result);
             
         } catch (error) {
             console.error('Error handling detection result:', error);
@@ -391,6 +405,47 @@ class SoundDitectApp {
         if (this.processingTimes.length % 100 === 0) {
             const avgTime = this.processingTimes.reduce((a, b) => a + b, 0) / this.processingTimes.length;
             console.log(`Average processing time: ${avgTime.toFixed(2)}ms`);
+        }
+    }
+
+    /**
+     * Track detection result performance and statistics
+     */
+    trackDetectionPerformance(result) {
+        if (!this.detectionStats) {
+            this.detectionStats = {
+                totalDetections: 0,
+                anomalyCount: 0,
+                normalCount: 0,
+                averageConfidence: 0,
+                lastDetectionTime: 0
+            };
+        }
+        
+        this.detectionStats.totalDetections++;
+        
+        if (result.prediction === 1) {
+            this.detectionStats.anomalyCount++;
+        } else {
+            this.detectionStats.normalCount++;
+        }
+        
+        // Update average confidence (running average)
+        this.detectionStats.averageConfidence = 
+            (this.detectionStats.averageConfidence * (this.detectionStats.totalDetections - 1) + result.confidence) / 
+            this.detectionStats.totalDetections;
+        
+        this.detectionStats.lastDetectionTime = Date.now();
+        
+        // Log statistics every 50 detections
+        if (this.detectionStats.totalDetections % 50 === 0) {
+            console.log('Detection Statistics:', {
+                total: this.detectionStats.totalDetections,
+                anomalies: this.detectionStats.anomalyCount,
+                normal: this.detectionStats.normalCount,
+                anomalyRate: (this.detectionStats.anomalyCount / this.detectionStats.totalDetections * 100).toFixed(2) + '%',
+                avgConfidence: this.detectionStats.averageConfidence.toFixed(3)
+            });
         }
     }
 

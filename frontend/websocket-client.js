@@ -11,7 +11,7 @@ class WebSocketClient {
         this.isConnected = false;
         this.clientId = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.maxReconnectAttempts = 10; // Increased retry attempts
         this.reconnectDelay = 1000; // 1 second
         this.pingInterval = null;
         this.pingTimeout = null;
@@ -344,11 +344,11 @@ class WebSocketClient {
         
         this.sendMessage(pingMessage);
         
-        // Set timeout for pong response (extended timeout for stability)
+        // Set timeout for pong response (further extended for maximum stability)
         this.pingTimeout = setTimeout(() => {
             console.warn('Ping timeout - connection may be lost');
             this.handleConnectionError('接続タイムアウト');
-        }, 15000); // 15 second timeout (extended for better stability)
+        }, 30000); // 30 second timeout (extended for maximum stability)
     }
 
     /**
@@ -367,12 +367,28 @@ class WebSocketClient {
     handleConnectionError(errorMessage) {
         console.error('Connection error:', errorMessage);
         
+        // Log connection statistics for debugging
+        const stats = this.getStatistics();
+        console.log('Connection statistics at error:', stats);
+        
+        // Clear any pending ping timeout
+        if (this.pingTimeout) {
+            clearTimeout(this.pingTimeout);
+            this.pingTimeout = null;
+        }
+        
         if (this.onError) {
             this.onError(errorMessage);
         }
         
         if (this.onConnectionStateChange) {
             this.onConnectionStateChange('error');
+        }
+        
+        // Auto-reconnect on timeout errors if we haven't exceeded max attempts
+        if (errorMessage.includes('タイムアウト') && this.reconnectAttempts < this.maxReconnectAttempts) {
+            console.log('Attempting auto-reconnect due to timeout...');
+            this.scheduleReconnect();
         }
     }
 
