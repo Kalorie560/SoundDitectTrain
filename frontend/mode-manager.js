@@ -126,18 +126,23 @@ class SimpleModeManager {
         
         console.log(`📊 Cached ${foundElements}/${Object.keys(elementSelectors).length} elements`);
         
-        // Check for missing required elements
+        // Check for missing required elements but be more lenient
         if (missingRequired.length > 0) {
-            const error = new Error(`Missing required elements: ${missingRequired.join(', ')}`);
+            console.warn(`⚠️ Missing required elements: ${missingRequired.join(', ')}`);
+            console.warn('📝 Continuing with fallback mode for better error recovery');
+            
             if (window.errorLogger) {
-                window.errorLogger.log(error, 'Mode Manager Required Elements', {
+                window.errorLogger.log(new Error(`Missing required elements: ${missingRequired.join(', ')}`), 'Mode Manager Required Elements', {
                     missingRequired,
                     foundElements,
                     totalElements: Object.keys(elementSelectors).length,
-                    domReady: document.readyState
+                    domReady: document.readyState,
+                    recoveryMode: true
                 });
             }
-            throw error;
+            
+            // Don't throw error, let it continue with fallback mode
+            // throw error;
         }
     }
     
@@ -193,19 +198,27 @@ class SimpleModeManager {
     }
 
     setupEventListeners() {
+        console.log('🔧 Setting up event listeners...');
+        
         // Mode selection buttons
         if (this.elements.selectRealtimeBtn) {
+            console.log('✅ Setting up real-time button event listener');
             this.elements.selectRealtimeBtn.addEventListener('click', (e) => {
                 console.log('🎯 Real-time mode button clicked');
                 this.selectMode('realtime', e.target);
             });
+        } else {
+            console.error('❌ Real-time button not found, cannot set up event listener');
         }
 
         if (this.elements.selectOfflineBtn) {
+            console.log('✅ Setting up offline button event listener');
             this.elements.selectOfflineBtn.addEventListener('click', (e) => {
                 console.log('🎯 Offline mode button clicked');
                 this.selectMode('offline', e.target);
             });
+        } else {
+            console.error('❌ Offline button not found, cannot set up event listener');
         }
 
         // Back buttons
@@ -232,11 +245,41 @@ class SimpleModeManager {
                 if (this.elements.offlineStartButtonText) {
                     this.elements.offlineStartButtonText.textContent = `録音開始 (${duration}秒)`;
                 }
+                
+                // Update app recording duration if available
+                if (window.app) {
+                    window.app.recordingDuration = duration;
+                }
+            });
+        }
+        
+        // Offline mode recording buttons
+        const offlineStartBtn = document.getElementById('offlineStartButton');
+        const offlineStopBtn = document.getElementById('offlineStopButton');
+        
+        if (offlineStartBtn) {
+            offlineStartBtn.addEventListener('click', async () => {
+                console.log('🎯 Offline start button clicked');
+                if (window.app) {
+                    const success = await window.app.startRecording();
+                    console.log(`🎯 Offline recording start result: ${success}`);
+                }
+            });
+        }
+        
+        if (offlineStopBtn) {
+            offlineStopBtn.addEventListener('click', () => {
+                console.log('🎯 Offline stop button clicked');
+                if (window.app) {
+                    window.app.stopRecording();
+                }
             });
         }
     }
 
     selectMode(mode, buttonElement) {
+        console.log(`🎯 selectMode called with mode: ${mode}, button:`, buttonElement);
+        
         if (this.isTransitioning) {
             console.log('⏳ Mode transition already in progress, ignoring click');
             return;
