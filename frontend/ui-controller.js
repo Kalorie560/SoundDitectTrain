@@ -58,7 +58,17 @@ class UIController {
         };
         
         // Canvas context for audio visualization
-        this.canvasContext = this.elements.audioCanvas.getContext('2d');
+        this.canvasContext = null;
+        if (this.elements.audioCanvas) {
+            try {
+                this.canvasContext = this.elements.audioCanvas.getContext('2d');
+            } catch (error) {
+                console.error('Failed to get canvas context:', error);
+                this.canvasContext = null;
+            }
+        } else {
+            console.warn('Audio canvas element not found');
+        }
         
         // Application state
         this.state = {
@@ -85,34 +95,51 @@ class UIController {
      * Initialize UI components and event listeners
      */
     initializeUI() {
-        // Sensitivity slider
-        this.elements.sensitivitySlider.addEventListener('input', (e) => {
-            this.state.sensitivity = parseFloat(e.target.value);
-            this.elements.sensitivityValue.textContent = this.state.sensitivity.toFixed(1);
-        });
-        
-        // Modal close button
-        this.elements.closeModal.addEventListener('click', () => {
-            this.hideModal();
-        });
-        
-        // Close modal when clicking outside
-        this.elements.errorModal.addEventListener('click', (e) => {
-            if (e.target === this.elements.errorModal) {
-                this.hideModal();
+        try {
+            // Sensitivity slider
+            if (this.elements.sensitivitySlider && this.elements.sensitivityValue) {
+                this.elements.sensitivitySlider.addEventListener('input', (e) => {
+                    this.state.sensitivity = parseFloat(e.target.value);
+                    this.elements.sensitivityValue.textContent = this.state.sensitivity.toFixed(1);
+                });
+            } else {
+                console.warn('Sensitivity slider elements not found');
             }
-        });
-        
-        // Initialize canvas
-        this.setupCanvas();
-        
-        // Start uptime counter
-        this.startUptimeCounter();
-        
-        // Start animation loop
-        this.startAnimationLoop();
-        
-        console.log('UI Controller initialized');
+            
+            // Modal close button
+            if (this.elements.closeModal) {
+                this.elements.closeModal.addEventListener('click', () => {
+                    this.hideModal();
+                });
+            } else {
+                console.warn('Close modal button not found');
+            }
+            
+            // Close modal when clicking outside
+            if (this.elements.errorModal) {
+                this.elements.errorModal.addEventListener('click', (e) => {
+                    if (e.target === this.elements.errorModal) {
+                        this.hideModal();
+                    }
+                });
+            } else {
+                console.warn('Error modal not found');
+            }
+            
+            // Initialize canvas
+            this.setupCanvas();
+            
+            // Start uptime counter
+            this.startUptimeCounter();
+            
+            // Start animation loop
+            this.startAnimationLoop();
+            
+            console.log('UI Controller initialized successfully');
+        } catch (error) {
+            console.error('Error during UI initialization:', error);
+            // Don't throw the error, just log it
+        }
     }
 
     /**
@@ -405,13 +432,22 @@ class UIController {
         const canvas = this.elements.audioCanvas;
         const ctx = this.canvasContext;
         
-        // Set canvas size
-        canvas.width = 600;
-        canvas.height = 200;
+        if (!canvas || !ctx) {
+            console.warn('Canvas or context not available for audio visualization');
+            return;
+        }
         
-        // Initial clear
-        ctx.fillStyle = '#1a202c';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        try {
+            // Set canvas size
+            canvas.width = 600;
+            canvas.height = 200;
+            
+            // Initial clear
+            ctx.fillStyle = '#1a202c';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        } catch (error) {
+            console.error('Error setting up canvas:', error);
+        }
     }
 
     /**
@@ -420,6 +456,12 @@ class UIController {
     drawAudioVisualization(timeDomainData, frequencyData) {
         const canvas = this.elements.audioCanvas;
         const ctx = this.canvasContext;
+        
+        if (!canvas || !ctx) {
+            console.warn('Canvas or context not available for visualization');
+            return;
+        }
+        
         const width = canvas.width;
         const height = canvas.height;
         
@@ -491,6 +533,10 @@ class UIController {
         const startTime = Date.now();
         
         setInterval(() => {
+            if (!this.elements.uptime) {
+                return; // Skip if element doesn't exist
+            }
+            
             const uptime = Date.now() - startTime;
             const hours = Math.floor(uptime / (1000 * 60 * 60));
             const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
