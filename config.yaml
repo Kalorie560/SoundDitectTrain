@@ -36,11 +36,11 @@ model:
     - filters: 128
       kernel_size: 3
       stride: 2
-      padding: "same"
+      padding: 1
     - filters: 256
       kernel_size: 3
       stride: 2
-      padding: "same"
+      padding: 1
   
   attention:
     hidden_dim: 256
