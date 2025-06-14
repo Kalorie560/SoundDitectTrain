@@ -1304,3 +1304,104 @@ input[type="range"]::-webkit-slider-thumb {
         text-align: center;
     }
 }
+
+/* Missing animations for mode selection */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Enhanced mode selection feedback */
+.mode-card.selecting {
+    border-color: #4299e1 !important;
+    transform: scale(1.02) !important;
+    box-shadow: 0 10px 30px rgba(66, 153, 225, 0.3) !important;
+}
+
+.mode-select-btn.selecting {
+    background: #2d3748 !important;
+    transform: scale(0.95) !important;
+    cursor: not-allowed !important;
+}
+
+/* Interface transition animations */
+.interface-transition {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease;
+}
+
+.interface-transition.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Loading overlay improvements */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(5px);
+    transition: opacity 0.3s ease;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #e2e8f0;
+    border-top: 4px solid #4299e1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+.loading-text {
+    color: #4a5568;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.loading-subtext {
+    color: #718096;
+    font-size: 1.1rem;
+}
+
+/* Enhanced visual feedback */
+.mode-card:active {
+    transform: scale(0.98);
+}
+
+.mode-select-btn:active {
+    transform: scale(0.95);
+}
+
+/* Better error state styling */
+.error-state {
+    background: #fed7d7 !important;
+    border-color: #e53e3e !important;
+}
+
+.error-state .mode-select-btn {
+    background: #e53e3e !important;
+    color: white !important;
+}
+
+/* Success state styling */
+.success-state {
+    background: #c6f6d5 !important;
+    border-color: #48bb78 !important;
+}
+
+.success-state .mode-select-btn {
+    background: #48bb78 !important;
+    color: white !important;
+}

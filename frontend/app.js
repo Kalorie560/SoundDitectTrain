@@ -70,11 +70,11 @@ class SoundDitectApp {
                 () => this.forceReconnect()
             );
             
-            // Set up mode selection handlers
-            this.setupModeSelection();
+            // Mode selection is now handled by SimpleModeManager
+            // this.setupModeSelection();
             
-            // Show initial mode selection
-            this.showModeSelection();
+            // Initial mode selection is handled by SimpleModeManager
+            // this.showModeSelection();
             
             this.isInitialized = true;
             this.uiController.updateSystemStatus('システム正常');
@@ -129,8 +129,12 @@ class SoundDitectApp {
 
     /**
      * Set up mode selection handlers
+     * DISABLED - Now handled by SimpleModeManager
      */
     setupModeSelection() {
+        console.log('⚠️ setupModeSelection disabled - using SimpleModeManager instead');
+        return;
+        /*
         const selectRealtimeBtn = document.getElementById('selectRealtimeMode');
         const selectOfflineBtn = document.getElementById('selectOfflineMode');
         const backFromRealtimeBtn = document.getElementById('backFromRealtime');
@@ -219,6 +223,7 @@ class SoundDitectApp {
                 this.uiController.setOfflineRecordingState(false);
             });
         }
+        */
     }
 
     /**
@@ -1207,7 +1212,36 @@ window.addEventListener('error', (event) => {
 // Export for debugging
 window.SoundDitectApp = app;
 
+// Integration with SimpleModeManager
+document.addEventListener('DOMContentLoaded', () => {
+    // Wait for SimpleModeManager to initialize, then integrate
+    setTimeout(() => {
+        if (window.simpleModeManager && app) {
+            console.log('🔗 Integrating SimpleModeManager with SoundDitectApp');
+            
+            // Set up mode change handler
+            const originalSelectMode = window.simpleModeManager.selectMode.bind(window.simpleModeManager);
+            window.simpleModeManager.selectMode = function(mode, buttonElement) {
+                console.log(`🔗 Mode change intercepted: ${mode}`);
+                
+                // Call original method
+                originalSelectMode(mode, buttonElement);
+                
+                // Update app's current mode
+                if (app) {
+                    app.currentMode = mode;
+                    console.log(`✅ App mode updated to: ${mode}`);
+                }
+            };
+            
+            console.log('✅ SimpleModeManager integration complete');
+        }
+    }, 100);
+});
+
 // Enhanced UI management methods with visual feedback
+// DISABLED - These prototype methods are now handled by SimpleModeManager
+/*
 SoundDitectApp.prototype.showModeSelection = function() {
     console.log('🎯 Showing mode selection interface');
     
@@ -1625,3 +1659,4 @@ SoundDitectApp.prototype.resetModeVisualFeedback = function() {
         instructions.remove();
     }
 };
+*/
