@@ -131,56 +131,78 @@ class SoundDitectApp {
      * Set up mode selection handlers
      */
     setupModeSelection() {
-        const realtimeRadio = document.getElementById('realtimeMode');
-        const offlineRadio = document.getElementById('offlineMode');
-        const offlineSettings = document.getElementById('offlineSettings');
-        const offlineResultsSection = document.getElementById('offlineResultsSection');
-        const resultsSection = document.querySelector('.results-section');
+        const selectRealtimeBtn = document.getElementById('selectRealtimeMode');
+        const selectOfflineBtn = document.getElementById('selectOfflineMode');
+        const backFromRealtimeBtn = document.getElementById('backFromRealtime');
+        const backFromOfflineBtn = document.getElementById('backFromOffline');
         const durationSlider = document.getElementById('recordingDuration');
         const durationValue = document.getElementById('durationValue');
-        const startButtonText = document.getElementById('startButtonText');
+        const offlineStartButtonText = document.getElementById('offlineStartButtonText');
         
-        // Handle mode changes
-        const handleModeChange = () => {
-            this.currentMode = realtimeRadio.checked ? 'realtime' : 'offline';
-            console.log(`Mode changed to: ${this.currentMode}`);
-            
-            // Show/hide appropriate settings and sections
-            if (this.currentMode === 'offline') {
-                offlineSettings.style.display = 'block';
-                offlineResultsSection.style.display = 'block';
-                resultsSection.style.display = 'none';
-                startButtonText.textContent = `録音開始 (${this.recordingDuration}秒)`;
-            } else {
-                offlineSettings.style.display = 'none';
-                offlineResultsSection.style.display = 'none';
-                resultsSection.style.display = 'block';
-                startButtonText.textContent = '録音開始';
-            }
-            
-            // Stop recording if mode changes during recording
-            if (this.isRecording) {
-                this.stopRecording();
-            }
-        };
+        // Handle real-time mode selection
+        if (selectRealtimeBtn) {
+            selectRealtimeBtn.addEventListener('click', () => {
+                console.log('Real-time mode selected');
+                this.setMode('realtime');
+            });
+        }
+        
+        // Handle offline mode selection
+        if (selectOfflineBtn) {
+            selectOfflineBtn.addEventListener('click', () => {
+                console.log('Offline mode selected');
+                this.setMode('offline');
+            });
+        }
+        
+        // Handle back buttons
+        if (backFromRealtimeBtn) {
+            backFromRealtimeBtn.addEventListener('click', () => {
+                console.log('Back to mode selection from real-time');
+                this.showModeSelection();
+            });
+        }
+        
+        if (backFromOfflineBtn) {
+            backFromOfflineBtn.addEventListener('click', () => {
+                console.log('Back to mode selection from offline');
+                this.showModeSelection();
+            });
+        }
         
         // Handle duration slider changes
-        const handleDurationChange = () => {
-            this.recordingDuration = parseInt(durationSlider.value);
-            durationValue.textContent = this.recordingDuration;
-            if (this.currentMode === 'offline') {
-                startButtonText.textContent = `録音開始 (${this.recordingDuration}秒)`;
-            }
-        };
+        if (durationSlider && durationValue) {
+            const handleDurationChange = () => {
+                this.recordingDuration = parseInt(durationSlider.value);
+                durationValue.textContent = this.recordingDuration;
+                if (offlineStartButtonText && this.currentMode === 'offline') {
+                    offlineStartButtonText.textContent = `録音開始 (${this.recordingDuration}秒)`;
+                }
+            };
+            
+            durationSlider.addEventListener('input', handleDurationChange);
+            handleDurationChange(); // Initialize
+        }
         
-        // Add event listeners
-        realtimeRadio.addEventListener('change', handleModeChange);
-        offlineRadio.addEventListener('change', handleModeChange);
-        durationSlider.addEventListener('input', handleDurationChange);
+        // Set up offline mode button handlers
+        const offlineStartBtn = document.getElementById('offlineStartButton');
+        const offlineStopBtn = document.getElementById('offlineStopButton');
         
-        // Initialize
-        handleModeChange();
-        handleDurationChange();
+        if (offlineStartBtn) {
+            offlineStartBtn.addEventListener('click', async () => {
+                const success = await this.startRecording();
+                if (success) {
+                    this.uiController.setOfflineRecordingState(true);
+                }
+            });
+        }
+        
+        if (offlineStopBtn) {
+            offlineStopBtn.addEventListener('click', () => {
+                this.stopRecording();
+                this.uiController.setOfflineRecordingState(false);
+            });
+        }
     }
 
     /**
