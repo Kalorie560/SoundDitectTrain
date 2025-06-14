@@ -38,9 +38,33 @@ class SoundDitectApp {
         try {
             console.log('Initializing SoundDitect application...');
             
-            // Initialize UI Controller
-            this.uiController = new UIController();
-            this.uiController.updateSystemStatus('初期化中...');
+            // Initialize UI Controller with error handling
+            try {
+                this.uiController = new UIController();
+                if (this.uiController) {
+                    this.uiController.updateSystemStatus('初期化中...');
+                }
+            } catch (uiError) {
+                console.error('Failed to initialize UI Controller:', uiError);
+                // Create a minimal fallback UI controller
+                this.uiController = {
+                    showError: (message) => {
+                        console.error('UI Error:', message);
+                        alert(message); // Fallback error display
+                    },
+                    updateSystemStatus: (status) => {
+                        console.log('System Status:', status);
+                    },
+                    setButtonHandlers: () => {},
+                    setRecordingState: () => {},
+                    updateConnectionStatus: () => {},
+                    updateDetectionResult: () => {},
+                    updateVolume: () => {},
+                    drawAudioVisualization: () => {},
+                    getSensitivity: () => 0.5,
+                    getStatistics: () => ({})
+                };
+            }
             
             // Check browser compatibility
             if (!this.checkBrowserCompatibility()) {
@@ -48,33 +72,41 @@ class SoundDitectApp {
                 return;
             }
             
-            // Check microphone access
-            const micAccess = await AudioProcessor.checkMicrophoneAccess();
-            if (!micAccess) {
-                this.uiController.showError('マイクへのアクセスが必要です。ブラウザの設定でマイクアクセスを許可してください。');
-                return;
+            // Initialize audio processor with error handling
+            try {
+                // Check microphone access first
+                const micAccess = await this.checkMicrophoneAccessSafely();
+                if (!micAccess) {
+                    this.uiController.showError('マイクへのアクセスが必要です。ブラウザの設定でマイクアクセスを許可してください。');
+                    // Continue initialization even without mic access
+                }
+                
+                this.audioProcessor = new AudioProcessor();
+                this.setupAudioProcessorCallbacks();
+            } catch (audioError) {
+                console.error('Failed to initialize audio processor:', audioError);
+                this.uiController.showError('オーディオシステムの初期化に失敗しました。録音機能が制限される可能性があります。');
             }
             
-            // Initialize audio processor
-            this.audioProcessor = new AudioProcessor();
-            this.setupAudioProcessorCallbacks();
-            
-            // Initialize WebSocket client
-            this.websocketClient = new WebSocketClient();
-            this.setupWebSocketCallbacks();
+            // Initialize WebSocket client with error handling
+            try {
+                this.websocketClient = new WebSocketClient();
+                this.setupWebSocketCallbacks();
+            } catch (wsError) {
+                console.error('Failed to initialize WebSocket client:', wsError);
+                this.uiController.showError('サーバー接続の初期化に失敗しました。リアルタイム機能が制限される可能性があります。');
+            }
             
             // Set up UI button handlers (only for real-time mode)
-            this.uiController.setButtonHandlers(
-                () => this.startRecording(),
-                () => this.stopRecording(),
-                () => this.forceReconnect()
-            );
-            
-            // Mode selection is now handled by SimpleModeManager
-            // this.setupModeSelection();
-            
-            // Initial mode selection is handled by SimpleModeManager
-            // this.showModeSelection();
+            try {
+                this.uiController.setButtonHandlers(
+                    () => this.startRecording(),
+                    () => this.stopRecording(),
+                    () => this.forceReconnect()
+                );
+            } catch (handlerError) {
+                console.error('Failed to set up button handlers:', handlerError);
+            }
             
             this.isInitialized = true;
             this.uiController.updateSystemStatus('システム正常');
@@ -82,8 +114,32 @@ class SoundDitectApp {
             console.log('SoundDitect application initialized successfully');
             
         } catch (error) {
-            console.error('Failed to initialize application:', error);
-            this.uiController.showError('アプリケーションの初期化に失敗しました: ' + error.message);
+            console.error('Critical initialization error:', error);
+            
+            // Ensure we have some way to show errors
+            if (this.uiController && this.uiController.showError) {
+                this.uiController.showError('アプリケーションの初期化に失敗しました: ' + error.message);
+            } else {
+                // Last resort - show alert
+                alert('アプリケーションの初期化に失敗しました: ' + error.message);
+            }
+        }
+    }
+    
+    /**
+     * Safely check microphone access without throwing errors
+     */
+    async checkMicrophoneAccessSafely() {
+        try {
+            if (AudioProcessor && AudioProcessor.checkMicrophoneAccess) {
+                return await AudioProcessor.checkMicrophoneAccess();
+            } else {
+                console.warn('AudioProcessor.checkMicrophoneAccess not available');
+                return false;
+            }
+        } catch (error) {
+            console.error('Error checking microphone access:', error);
+            return false;
         }
     }
 
@@ -230,29 +286,48 @@ class SoundDitectApp {
      * Set up audio processor callbacks
      */
     setupAudioProcessorCallbacks() {
-        // Audio data callback - process based on current mode
-        this.audioProcessor.onAudioData = (audioData) => {
-            this.processAudioData(audioData);
-        };
+        if (!this.audioProcessor) {
+            console.warn('Audio processor not available, skipping callback setup');
+            return;
+        }
         
-        // Volume level callback - update UI
-        this.audioProcessor.onVolumeChange = (volume) => {
-            this.uiController.updateVolume(volume);
-            this.updateAudioVisualization();
-        };
-        
-        // Error callback
-        this.audioProcessor.onError = (error) => {
-            console.error('Audio processor error:', error);
-            this.uiController.showError(error);
-            this.stopRecording();
-        };
+        try {
+            // Audio data callback - process based on current mode
+            this.audioProcessor.onAudioData = (audioData) => {
+                this.processAudioData(audioData);
+            };
+            
+            // Volume level callback - update UI
+            this.audioProcessor.onVolumeChange = (volume) => {
+                if (this.uiController && this.uiController.updateVolume) {
+                    this.uiController.updateVolume(volume);
+                }
+                this.updateAudioVisualization();
+            };
+            
+            // Error callback
+            this.audioProcessor.onError = (error) => {
+                console.error('Audio processor error:', error);
+                if (this.uiController && this.uiController.showError) {
+                    this.uiController.showError(error);
+                }
+                this.stopRecording();
+            };
+        } catch (error) {
+            console.error('Error setting up audio processor callbacks:', error);
+        }
     }
 
     /**
      * Set up WebSocket callbacks with enhanced connection monitoring
      */
     setupWebSocketCallbacks() {
+        if (!this.websocketClient) {
+            console.warn('WebSocket client not available, skipping callback setup');
+            return;
+        }
+        
+        try {
         // Connection state changes with quality monitoring
         this.websocketClient.onConnectionStateChange = (state) => {
             this.uiController.updateConnectionStatus(state);
@@ -369,6 +444,9 @@ class SoundDitectApp {
                 console.log('📝 Recording in progress during error - monitoring for recovery');
             }
         };
+        } catch (error) {
+            console.error('Error setting up WebSocket callbacks:', error);
+        }
     }
 
     /**
@@ -966,7 +1044,7 @@ class SoundDitectApp {
      * Update audio visualization
      */
     updateAudioVisualization() {
-        if (!this.isRecording || !this.audioProcessor) {
+        if (!this.isRecording || !this.audioProcessor || !this.uiController) {
             return;
         }
         
@@ -974,7 +1052,9 @@ class SoundDitectApp {
             const timeDomainData = this.audioProcessor.getTimeDomainData();
             const frequencyData = this.audioProcessor.getFrequencySpectrum();
             
-            this.uiController.drawAudioVisualization(timeDomainData, frequencyData);
+            if (this.uiController.drawAudioVisualization) {
+                this.uiController.drawAudioVisualization(timeDomainData, frequencyData);
+            }
             
         } catch (error) {
             console.error('Error updating audio visualization:', error);
@@ -1201,11 +1281,37 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// Global error handler
+// Global error handler with better recovery
 window.addEventListener('error', (event) => {
     console.error('Global error:', event.error);
-    if (app && app.uiController) {
-        app.uiController.showError('予期しないエラーが発生しました');
+    console.error('Error details:', {
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        message: event.message
+    });
+    
+    // Only show error to user if app has initialized successfully
+    if (app && app.isInitialized && app.uiController && app.uiController.showError) {
+        // Don't show errors during initialization phase
+        if (app.isInitialized) {
+            app.uiController.showError('予期しないエラーが発生しました。ページを再読み込みしてください。');
+        }
+    } else {
+        console.warn('Error occurred during app initialization, not showing to user');
+    }
+});
+
+// Handle unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    
+    // Prevent the error from showing in console as "Uncaught"
+    event.preventDefault();
+    
+    // Only show to user if app is running normally
+    if (app && app.isInitialized && app.uiController) {
+        app.uiController.showError('通信エラーが発生しました。接続を確認してください。');
     }
 });
 
