@@ -178,10 +178,16 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                 if is_processing and session_id == recording_session:
                     try:
                         # Process audio data
+                        logger.debug(f"Processing audio data for session: {recording_session}")
                         audio_result = await process_audio_message(data)
                         
-                        # Send result back to client
-                        await websocket.send_json({
+                        # Log the prediction result for debugging
+                        logger.info(f"Prediction result - Session: {recording_session}, "
+                                  f"Prediction: {audio_result['prediction']}, "
+                                  f"Confidence: {audio_result['confidence']:.3f}")
+                        
+                        # Prepare response
+                        result_message = {
                             "type": "detection_result",
                             "session_id": recording_session,
                             "timestamp": audio_result["timestamp"],
@@ -189,15 +195,21 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                             "confidence": audio_result["confidence"],
                             "status": "OK" if audio_result["prediction"] == 0 else "NG",
                             "message": "正常" if audio_result["prediction"] == 0 else "異常検知!"
-                        })
+                        }
+                        
+                        # Send result back to client
+                        await websocket.send_json(result_message)
+                        logger.debug(f"Detection result sent to client: {result_message}")
                         
                     except Exception as e:
                         logger.error(f"Audio processing error: {e}")
-                        await websocket.send_json({
+                        error_message = {
                             "type": "error",
                             "session_id": recording_session,
                             "message": f"音声処理エラー: {str(e)}"
-                        })
+                        }
+                        await websocket.send_json(error_message)
+                        logger.debug(f"Error message sent to client: {error_message}")
                 else:
                     # Audio data received without active session - ignore
                     logger.debug(f"Ignoring audio data - no active session or session mismatch")
@@ -235,12 +247,32 @@ async def process_audio_message(data: Dict) -> Dict:
         
         # Convert to numpy array
         audio_array = np.frombuffer(audio_data, dtype=np.float32)
+        logger.debug(f"Received audio data: {len(audio_array)} samples at {sample_rate}Hz")
+        
+        # Validate audio data
+        if len(audio_array) == 0:
+            logger.warning("Received empty audio data")
+            return {
+                "timestamp": asyncio.get_event_loop().time(),
+                "prediction": 0,
+                "confidence": 0.5,
+                "sample_rate": sample_rate,
+                "audio_length": 0,
+                "error": "Empty audio data"
+            }
         
         # Process audio through the pipeline
         processed_audio = audio_processor.preprocess(audio_array, sample_rate)
+        logger.debug(f"Processed audio: {len(processed_audio)} samples")
+        
+        # Ensure model is loaded before prediction
+        if not model_manager.is_model_loaded():
+            logger.warning("Model not loaded, attempting to load...")
+            await model_manager.load_model()
         
         # Get prediction from model
         prediction, confidence = await model_manager.predict(processed_audio)
+        logger.debug(f"Model prediction: {prediction}, confidence: {confidence}")
         
         return {
             "timestamp": asyncio.get_event_loop().time(),
@@ -251,8 +283,16 @@ async def process_audio_message(data: Dict) -> Dict:
         }
         
     except Exception as e:
-        logger.error(f"Error processing audio: {e}")
-        raise
+        logger.error(f"Error processing audio: {e}", exc_info=True)
+        # Return a default result instead of raising to prevent WebSocket disconnect
+        return {
+            "timestamp": asyncio.get_event_loop().time(),
+            "prediction": 0,
+            "confidence": 0.0,
+            "sample_rate": data.get("sample_rate", config['audio']['sample_rate']),
+            "audio_length": 0,
+            "error": str(e)
+        }
 
 @app.get("/api/stats")
 async def get_stats():

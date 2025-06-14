@@ -33,6 +33,35 @@ SoundDitectは、PCのマイクからリアルタイムで入力される音声�
 - **Web Audio API**: ブラウザから直接マイクアクセス、低遅延処理
 - **WebSocket**: リアルタイム双方向通信で即座の結果通知
 
+### システム要件
+
+#### 推奨スペック（1秒毎の判定結果表示）
+
+**CPU要件:**
+- **最小**: Intel Core i5-8th gen / AMD Ryzen 5 3600 以上
+- **推奨**: Intel Core i7-10th gen / AMD Ryzen 7 4700U 以上  
+- **最適**: Intel Core i7-12th gen / AMD Ryzen 7 5800X 以上
+
+**GPU要件:**
+- **CPU使用時**: GPUは不要（統合グラフィックスで十分）
+- **GPU使用時（オプション）**: NVIDIA GTX 1060 / RTX 3050 以上（CUDA対応）
+- **推奨GPU**: NVIDIA RTX 3060 / RTX 4060 以上（高速推論用）
+
+**メモリ要件:**
+- **最小**: 4GB RAM
+- **推奨**: 8GB RAM 以上
+- **最適**: 16GB RAM 以上（複数セッション対応）
+
+**ストレージ要件:**
+- **必要容量**: 2GB以上の空き容量
+- **推奨**: SSD（高速なファイルアクセス）
+
+**ネットワーク要件:**
+- **ローカル使用**: 不要
+- **リモートアクセス**: 100Mbps以上の安定した接続
+
+> 💡 **パフォーマンス注記**: リアルタイム1秒毎の判定を実現するため、上記スペックを満たすことを強く推奨します。古いハードウェアでは判定遅延が発生する可能性があります。
+
 ### セットアップと実行手順
 
 #### 1. 環境準備
@@ -228,6 +257,35 @@ SoundDitect is a high-responsiveness, high-precision web application that analyz
 - **FastAPI**: Supports asynchronous processing and WebSocket, high-speed API server
 - **Web Audio API**: Direct microphone access from browser, low-latency processing
 - **WebSocket**: Real-time bidirectional communication for immediate result notification
+
+### System Requirements
+
+#### Recommended Specifications (for 1-second interval detection)
+
+**CPU Requirements:**
+- **Minimum**: Intel Core i5-8th gen / AMD Ryzen 5 3600 or higher
+- **Recommended**: Intel Core i7-10th gen / AMD Ryzen 7 4700U or higher  
+- **Optimal**: Intel Core i7-12th gen / AMD Ryzen 7 5800X or higher
+
+**GPU Requirements:**
+- **CPU Mode**: No GPU required (integrated graphics sufficient)
+- **GPU Mode (Optional)**: NVIDIA GTX 1060 / RTX 3050 or higher (CUDA compatible)
+- **Recommended GPU**: NVIDIA RTX 3060 / RTX 4060 or higher (for high-speed inference)
+
+**Memory Requirements:**
+- **Minimum**: 4GB RAM
+- **Recommended**: 8GB RAM or higher
+- **Optimal**: 16GB RAM or higher (for multiple sessions)
+
+**Storage Requirements:**
+- **Required Space**: 2GB+ free space
+- **Recommended**: SSD (for fast file access)
+
+**Network Requirements:**
+- **Local Use**: Not required
+- **Remote Access**: 100Mbps+ stable connection
+
+> 💡 **Performance Note**: To achieve real-time 1-second interval detection, we strongly recommend meeting the above specifications. Older hardware may experience detection delays.
 
 ### Setup and Execution
 
@@ -457,10 +515,42 @@ Edit the `config.yaml` file to customize:
 - 利用可能メモリを確認
 - 必要に応じてバッチサイズを削減
 
-**WebSocket接続エラー**
-- ファイアウォール設定を確認
-- サーバーが動作しているか確認
-- ブラウザの開発者コンソールを確認
+**WebSocket接続エラー・タイムアウト問題**
+- **現象**: 接続が頻繁に切断される、タイムアウトエラーが発生する
+- **原因**: ネットワーク不安定、プロキシ設定、ファイアウォール
+- **解決方法**:
+  ```bash
+  # 1. ファイアウォール設定の確認
+  # Windows: Windows Defenderでポート8000を許可
+  # macOS: システム環境設定 > セキュリティとプライバシー > ファイアウォール
+  
+  # 2. プロキシ設定の確認
+  # 企業ネットワークの場合、IT部門にWebSocket通信許可を依頼
+  
+  # 3. サーバー再起動
+  python run_server.py
+  ```
+- **最新の修正**: タイムアウト時間を30秒に延長、自動再接続機能を強化
+
+**モデルから判定結果が出力されない問題**
+- **現象**: 音声は録音されているが判定結果が表示されない
+- **修正済み**: 最新版では詳細なログ出力と自動回復機能を追加
+- **デバッグ方法**:
+  ```bash
+  # ブラウザ開発者コンソールで以下を確認
+  # 1. WebSocket接続状況: "Connected to server" メッセージ
+  # 2. 録音セッション開始: "Recording session started" メッセージ  
+  # 3. 判定結果受信: "Detection result received" メッセージ
+  # 4. サーバーログで "Prediction result" メッセージを確認
+  ```
+- **対処法**:
+  - サーバーを再起動
+  - ブラウザキャッシュをクリア
+  - マイクアクセス許可を再設定
+
+**録音停止後の再接続エラー**
+- **修正済み**: 接続状態とセッション管理を改善
+- **現在の動作**: 録音停止時に適切なクリーンアップを実行し、即座に再録音可能
 
 ---
 
