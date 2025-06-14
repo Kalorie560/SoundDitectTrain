@@ -158,6 +158,136 @@ async def start_training():
         logger.error(f"Training error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/analyze_batch")
+async def analyze_batch_audio(request: dict):
+    """
+    Analyze audio data in batch mode.
+    
+    Expected request format:
+    {
+        "audio_data": "base64_encoded_audio",
+        "sample_rate": 44100,
+        "duration": 30.0
+    }
+    
+    Returns analysis results for each second of audio.
+    """
+    try:
+        logger.info("🎯 Starting batch audio analysis...")
+        
+        # Validate request data
+        if not isinstance(request, dict) or "audio_data" not in request:
+            raise HTTPException(status_code=400, detail="Invalid request: missing audio_data")
+        
+        # Decode base64 audio data
+        try:
+            audio_data = base64.b64decode(request["audio_data"])
+            audio_array = np.frombuffer(audio_data, dtype=np.float32)
+        except Exception as decode_error:
+            logger.error(f"❌ Audio decoding failed: {decode_error}")
+            raise HTTPException(status_code=400, detail=f"Audio decoding failed: {decode_error}")
+        
+        sample_rate = request.get("sample_rate", config['audio']['sample_rate'])
+        duration = request.get("duration", len(audio_array) / sample_rate)
+        
+        logger.info(f"📊 Batch analysis: {len(audio_array)} samples, {sample_rate}Hz, {duration:.2f}s")
+        
+        # Ensure model is loaded
+        if not model_manager.is_model_loaded():
+            logger.warning("⚠️ Model not loaded, attempting to load...")
+            load_success = await model_manager.load_model()
+            if not load_success:
+                raise HTTPException(status_code=500, detail="Failed to load model for batch analysis")
+        
+        # Process audio in 1-second segments
+        segment_length = sample_rate  # 1 second worth of samples
+        results = []
+        waveform_data = []
+        
+        total_segments = int(np.ceil(len(audio_array) / segment_length))
+        
+        for i in range(total_segments):
+            start_idx = i * segment_length
+            end_idx = min(start_idx + segment_length, len(audio_array))
+            
+            # Extract segment
+            segment = audio_array[start_idx:end_idx]
+            
+            # Store waveform data for visualization (downsampled)
+            downsample_factor = max(1, len(segment) // 1000)  # Max 1000 points per second
+            waveform_segment = segment[::downsample_factor].tolist()
+            waveform_data.append(waveform_segment)
+            
+            # Pad segment if needed (for last segment)
+            if len(segment) < segment_length:
+                segment = np.pad(segment, (0, segment_length - len(segment)), mode='constant')
+            
+            try:
+                # Preprocess segment
+                processed_segment = audio_processor.preprocess(segment, sample_rate)
+                
+                # Get prediction
+                prediction, confidence = await model_manager.predict(processed_segment)
+                
+                # Create result for this segment
+                segment_result = {
+                    "time": i,  # Time in seconds
+                    "prediction": int(prediction),
+                    "confidence": float(confidence),
+                    "status": "OK" if prediction == 0 else "NG",
+                    "rms": float(np.sqrt(np.mean(segment ** 2))),
+                    "max_amplitude": float(np.max(np.abs(segment)))
+                }
+                
+                results.append(segment_result)
+                logger.info(f"⏱️ Segment {i}s: {segment_result['status']} (confidence: {confidence:.3f})")
+                
+            except Exception as segment_error:
+                logger.error(f"❌ Error processing segment {i}: {segment_error}")
+                # Add error result
+                results.append({
+                    "time": i,
+                    "prediction": 0,  # Default to normal on error
+                    "confidence": 0.0,
+                    "status": "ERROR",
+                    "rms": 0.0,
+                    "max_amplitude": 0.0,
+                    "error": str(segment_error)
+                })
+        
+        # Calculate summary statistics
+        valid_results = [r for r in results if r.get("status") != "ERROR"]
+        total_results = len(valid_results)
+        ok_count = sum(1 for r in valid_results if r["prediction"] == 0)
+        ng_count = sum(1 for r in valid_results if r["prediction"] == 1)
+        avg_confidence = sum(r["confidence"] for r in valid_results) / total_results if total_results > 0 else 0
+        
+        response = {
+            "status": "success",
+            "duration": duration,
+            "total_segments": total_segments,
+            "results": results,
+            "waveform_data": waveform_data,
+            "summary": {
+                "total_duration": duration,
+                "ok_count": ok_count,
+                "ng_count": ng_count,
+                "error_count": len(results) - len(valid_results),
+                "average_confidence": round(avg_confidence, 3),
+                "anomaly_rate": round((ng_count / total_results * 100) if total_results > 0 else 0, 2)
+            },
+            "timestamp": asyncio.get_event_loop().time()
+        }
+        
+        logger.info(f"✅ Batch analysis complete: {ok_count} OK, {ng_count} NG, avg confidence: {avg_confidence:.3f}")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Batch analysis error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Batch analysis failed: {str(e)}")
+
 @app.websocket("/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
     """

@@ -15,6 +15,13 @@ class SoundDitectApp {
         // Application state
         this.isInitialized = false;
         this.isRecording = false;
+        this.currentMode = 'realtime'; // 'realtime' or 'offline'
+        
+        // Offline mode state
+        this.offlineAudioData = [];
+        this.recordingStartTime = 0;
+        this.recordingDuration = 30; // seconds
+        this.recordingTimer = null;
         
         // Performance tracking
         this.lastProcessTime = 0;
@@ -61,6 +68,9 @@ class SoundDitectApp {
                 () => this.startRecording(),
                 () => this.stopRecording()
             );
+            
+            // Set up mode selection handlers
+            this.setupModeSelection();
             
             this.isInitialized = true;
             this.uiController.updateSystemStatus('システム正常');
@@ -114,10 +124,66 @@ class SoundDitectApp {
     }
 
     /**
+     * Set up mode selection handlers
+     */
+    setupModeSelection() {
+        const realtimeRadio = document.getElementById('realtimeMode');
+        const offlineRadio = document.getElementById('offlineMode');
+        const offlineSettings = document.getElementById('offlineSettings');
+        const offlineResultsSection = document.getElementById('offlineResultsSection');
+        const resultsSection = document.querySelector('.results-section');
+        const durationSlider = document.getElementById('recordingDuration');
+        const durationValue = document.getElementById('durationValue');
+        const startButtonText = document.getElementById('startButtonText');
+        
+        // Handle mode changes
+        const handleModeChange = () => {
+            this.currentMode = realtimeRadio.checked ? 'realtime' : 'offline';
+            console.log(`Mode changed to: ${this.currentMode}`);
+            
+            // Show/hide appropriate settings and sections
+            if (this.currentMode === 'offline') {
+                offlineSettings.style.display = 'block';
+                offlineResultsSection.style.display = 'block';
+                resultsSection.style.display = 'none';
+                startButtonText.textContent = `録音開始 (${this.recordingDuration}秒)`;
+            } else {
+                offlineSettings.style.display = 'none';
+                offlineResultsSection.style.display = 'none';
+                resultsSection.style.display = 'block';
+                startButtonText.textContent = '録音開始';
+            }
+            
+            // Stop recording if mode changes during recording
+            if (this.isRecording) {
+                this.stopRecording();
+            }
+        };
+        
+        // Handle duration slider changes
+        const handleDurationChange = () => {
+            this.recordingDuration = parseInt(durationSlider.value);
+            durationValue.textContent = this.recordingDuration;
+            if (this.currentMode === 'offline') {
+                startButtonText.textContent = `録音開始 (${this.recordingDuration}秒)`;
+            }
+        };
+        
+        // Add event listeners
+        realtimeRadio.addEventListener('change', handleModeChange);
+        offlineRadio.addEventListener('change', handleModeChange);
+        durationSlider.addEventListener('input', handleDurationChange);
+        
+        // Initialize
+        handleModeChange();
+        handleDurationChange();
+    }
+
+    /**
      * Set up audio processor callbacks
      */
     setupAudioProcessorCallbacks() {
-        // Audio data callback - send to server for processing
+        // Audio data callback - process based on current mode
         this.audioProcessor.onAudioData = (audioData) => {
             this.processAudioData(audioData);
         };
@@ -218,46 +284,95 @@ class SoundDitectApp {
                 return false;
             }
             
-            if (!this.websocketClient.isConnected) {
-                this.uiController.showError('サーバーに接続されていません');
-                return false;
-            }
-            
-            console.log('Starting audio recording...');
+            console.log(`Starting ${this.currentMode} recording...`);
             
             // Resume audio context if needed
             await this.audioProcessor.resumeAudioContext();
             
-            // Start WebSocket recording session
-            const wsSuccess = this.websocketClient.startRecording();
-            if (!wsSuccess) {
-                this.uiController.showError('録音セッションの開始に失敗しました');
-                return false;
-            }
-            
-            // Start audio recording
-            const audioSuccess = await this.audioProcessor.startRecording();
-            
-            if (audioSuccess) {
-                this.isRecording = true;
-                this.lastProcessTime = Date.now();
-                console.log('Audio recording started successfully');
-                return true;
+            if (this.currentMode === 'realtime') {
+                return await this.startRealtimeRecording();
             } else {
-                // If audio recording fails, stop WebSocket session
-                this.websocketClient.stopRecording();
-                console.error('Failed to start audio recording');
-                return false;
+                return await this.startOfflineRecording();
             }
             
         } catch (error) {
             console.error('Error starting recording:', error);
             this.uiController.showError('録音開始エラー: ' + error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Start real-time recording mode
+     */
+    async startRealtimeRecording() {
+        if (!this.websocketClient.isConnected) {
+            this.uiController.showError('サーバーに接続されていません');
+            return false;
+        }
+        
+        // Start WebSocket recording session
+        const wsSuccess = this.websocketClient.startRecording();
+        if (!wsSuccess) {
+            this.uiController.showError('録音セッションの開始に失敗しました');
+            return false;
+        }
+        
+        // Start audio recording
+        const audioSuccess = await this.audioProcessor.startRecording();
+        
+        if (audioSuccess) {
+            this.isRecording = true;
+            this.lastProcessTime = Date.now();
+            console.log('Real-time recording started successfully');
+            return true;
+        } else {
+            // If audio recording fails, stop WebSocket session
+            this.websocketClient.stopRecording();
+            console.error('Failed to start real-time recording');
+            return false;
+        }
+    }
+
+    /**
+     * Start offline recording mode
+     */
+    async startOfflineRecording() {
+        // Initialize offline recording state
+        this.offlineAudioData = [];
+        this.recordingStartTime = Date.now();
+        
+        // Update UI
+        this.updateOfflineProcessingStatus('録音中...', true);
+        this.updateOfflineProgress(0);
+        
+        // Set up audio processor for offline mode
+        this.audioProcessor.onAudioData = (audioData) => {
+            this.collectOfflineAudioData(audioData);
+        };
+        
+        // Start audio recording
+        const audioSuccess = await this.audioProcessor.startRecording();
+        
+        if (audioSuccess) {
+            this.isRecording = true;
+            console.log(`Offline recording started for ${this.recordingDuration} seconds`);
             
-            // Cleanup on error
-            if (this.websocketClient.isRecording) {
-                this.websocketClient.stopRecording();
-            }
+            // Set up timer for recording duration
+            this.recordingTimer = setInterval(() => {
+                const elapsed = (Date.now() - this.recordingStartTime) / 1000;
+                const progress = Math.min(elapsed / this.recordingDuration, 1) * 100;
+                this.updateOfflineProgress(progress);
+                
+                if (elapsed >= this.recordingDuration) {
+                    this.stopRecording();
+                }
+            }, 100);
+            
+            return true;
+        } else {
+            this.updateOfflineProcessingStatus('録音開始に失敗しました', false);
+            console.error('Failed to start offline recording');
             return false;
         }
     }
@@ -272,22 +387,32 @@ class SoundDitectApp {
                 return;
             }
             
-            console.log('Stopping audio recording...');
+            console.log(`Stopping ${this.currentMode} recording...`);
+            
+            // Clear timer if in offline mode
+            if (this.recordingTimer) {
+                clearInterval(this.recordingTimer);
+                this.recordingTimer = null;
+            }
             
             // Stop audio recording first
             this.audioProcessor.stopRecording();
             
-            // Stop WebSocket recording session
-            if (this.websocketClient.isRecording) {
-                this.websocketClient.stopRecording();
+            if (this.currentMode === 'realtime') {
+                // Stop WebSocket recording session
+                if (this.websocketClient.isRecording) {
+                    this.websocketClient.stopRecording();
+                }
+                
+                // Clear visualization
+                this.uiController.drawAudioVisualization(null, null);
+            } else {
+                // Offline mode - process collected audio data
+                this.processOfflineAudio();
             }
             
             this.isRecording = false;
-            
-            // Clear visualization
-            this.uiController.drawAudioVisualization(null, null);
-            
-            console.log('Audio recording stopped');
+            console.log(`${this.currentMode} recording stopped`);
             
         } catch (error) {
             console.error('Error stopping recording:', error);
@@ -296,6 +421,10 @@ class SoundDitectApp {
             // Force cleanup on error
             try {
                 this.isRecording = false;
+                if (this.recordingTimer) {
+                    clearInterval(this.recordingTimer);
+                    this.recordingTimer = null;
+                }
                 if (this.websocketClient.isRecording) {
                     this.websocketClient.stopRecording();
                 }
@@ -306,9 +435,21 @@ class SoundDitectApp {
     }
 
     /**
-     * Process audio data and send to server with enhanced validation and error handling
+     * Process audio data based on current mode
      */
     async processAudioData(audioData) {
+        if (this.currentMode === 'realtime') {
+            await this.processRealtimeAudioData(audioData);
+        } else {
+            // In offline mode, this is handled by collectOfflineAudioData
+            // which is set as the callback in startOfflineRecording
+        }
+    }
+
+    /**
+     * Process audio data for real-time mode with enhanced validation and error handling
+     */
+    async processRealtimeAudioData(audioData) {
         try {
             const startTime = Date.now();
             
@@ -366,9 +507,297 @@ class SoundDitectApp {
     }
 
     /**
-     * Handle detection result from server with enhanced logging and validation
+     * Collect audio data for offline processing
+     */
+    collectOfflineAudioData(audioData) {
+        if (!audioData || audioData.length === 0) {
+            return;
+        }
+        
+        // Store the audio data
+        this.offlineAudioData.push(...audioData);
+        
+        // Update volume visualization in real-time even in offline mode
+        if (this.uiController) {
+            const rms = Math.sqrt(audioData.reduce((sum, val) => sum + val * val, 0) / audioData.length);
+            const volume = Math.min(rms * 100, 1.0);
+            this.uiController.updateVolume(volume);
+        }
+    }
+
+    /**
+     * Process collected offline audio data
+     */
+    async processOfflineAudio() {
+        try {
+            if (this.offlineAudioData.length === 0) {
+                this.uiController.showError('録音データがありません');
+                return;
+            }
+            
+            console.log(`🎯 Processing offline audio: ${this.offlineAudioData.length} samples`);
+            
+            // Update UI
+            this.updateOfflineProcessingStatus('分析中...', true);
+            this.updateOfflineProgress(0);
+            
+            // Convert to base64 for transmission
+            const audioArray = new Float32Array(this.offlineAudioData);
+            const audioBase64 = this.audioProcessor.audioToBase64(audioArray);
+            
+            if (!audioBase64) {
+                throw new Error('音声データのエンコードに失敗しました');
+            }
+            
+            // Send to server for batch analysis
+            const response = await fetch('/api/analyze_batch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    audio_data: audioBase64,
+                    sample_rate: this.audioProcessor.sampleRate,
+                    duration: this.recordingDuration
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`サーバーエラー: ${response.status}`);
+            }
+            
+            const results = await response.json();
+            console.log('📊 Batch analysis results:', results);
+            
+            // Display results
+            this.displayOfflineResults(results);
+            
+        } catch (error) {
+            console.error('❌ Error processing offline audio:', error);
+            this.updateOfflineProcessingStatus(`エラー: ${error.message}`, false);
+            this.uiController.showError(`オフライン分析エラー: ${error.message}`);
+        }
+    }
+
+    /**
+     * Update offline processing status
+     */
+    updateOfflineProcessingStatus(text, showSpinner = false) {
+        const processingText = document.getElementById('processingText');
+        const processingSpinner = document.getElementById('processingSpinner');
+        
+        if (processingText) {
+            processingText.textContent = text;
+        }
+        
+        if (processingSpinner) {
+            processingSpinner.style.display = showSpinner ? 'block' : 'none';
+        }
+    }
+
+    /**
+     * Update offline processing progress
+     */
+    updateOfflineProgress(percentage) {
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        
+        if (progressBar && progressFill) {
+            progressBar.style.display = 'block';
+            progressFill.style.width = `${percentage}%`;
+        }
+    }
+
+    /**
+     * Display offline analysis results
+     */
+    displayOfflineResults(results) {
+        try {
+            console.log('🎨 Displaying offline results...');
+            
+            // Update processing status
+            this.updateOfflineProcessingStatus('分析完了', false);
+            this.updateOfflineProgress(100);
+            
+            // Update summary statistics
+            this.updateOfflineSummary(results.summary);
+            
+            // Draw waveform with judgments
+            this.drawWaveformWithJudgments(results.waveform_data, results.results);
+            
+            // Update detailed results table
+            this.updateResultsTable(results.results);
+            
+            // Generate timeline
+            this.generateTimeline(results.duration);
+            
+            console.log('✅ Offline results displayed successfully');
+            
+        } catch (error) {
+            console.error('❌ Error displaying offline results:', error);
+            this.uiController.showError(`結果表示エラー: ${error.message}`);
+        }
+    }
+
+    /**
+     * Update offline summary statistics
+     */
+    updateOfflineSummary(summary) {
+        const totalDuration = document.getElementById('totalDuration');
+        const okCount = document.getElementById('okCount');
+        const ngCount = document.getElementById('ngCount');
+        const avgConfidence = document.getElementById('avgConfidence');
+        
+        if (totalDuration) totalDuration.textContent = `${summary.total_duration.toFixed(1)}秒`;
+        if (okCount) okCount.textContent = summary.ok_count;
+        if (ngCount) ngCount.textContent = summary.ng_count;
+        if (avgConfidence) avgConfidence.textContent = summary.average_confidence.toFixed(3);
+    }
+
+    /**
+     * Draw waveform with judgment overlays
+     */
+    drawWaveformWithJudgments(waveformData, results) {
+        const canvas = document.getElementById('waveformCanvas');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        
+        // Clear canvas
+        ctx.fillStyle = '#1a202c';
+        ctx.fillRect(0, 0, width, height);
+        
+        if (!waveformData || waveformData.length === 0) return;
+        
+        // Draw waveform
+        ctx.strokeStyle = '#4299e1';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        
+        const totalSamples = waveformData.flat().length;
+        const samplesPerPixel = Math.ceil(totalSamples / width);
+        const midY = height / 2;
+        
+        let sampleIndex = 0;
+        for (let x = 0; x < width; x++) {
+            let sum = 0;
+            let count = 0;
+            
+            // Average samples for this pixel
+            for (let i = 0; i < samplesPerPixel && sampleIndex < totalSamples; i++) {
+                const segmentIndex = Math.floor(sampleIndex / 1000);
+                const sampleInSegment = sampleIndex % 1000;
+                
+                if (segmentIndex < waveformData.length && 
+                    sampleInSegment < waveformData[segmentIndex].length) {
+                    sum += Math.abs(waveformData[segmentIndex][sampleInSegment]);
+                    count++;
+                }
+                sampleIndex++;
+            }
+            
+            const amplitude = count > 0 ? (sum / count) : 0;
+            const y = midY - (amplitude * midY * 0.8);
+            
+            if (x === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        
+        ctx.stroke();
+        
+        // Draw judgment overlays
+        if (results && results.length > 0) {
+            const segmentWidth = width / results.length;
+            
+            results.forEach((result, index) => {
+                const x = index * segmentWidth;
+                const segmentColor = result.prediction === 1 ? 
+                    `rgba(245, 101, 101, ${result.confidence * 0.7})` : 
+                    `rgba(72, 187, 120, ${result.confidence * 0.3})`;
+                
+                ctx.fillStyle = segmentColor;
+                ctx.fillRect(x, 0, segmentWidth, height);
+                
+                // Add text label for NG segments with high confidence
+                if (result.prediction === 1 && result.confidence > 0.7) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('NG', x + segmentWidth / 2, height / 2);
+                }
+            });
+        }
+    }
+
+    /**
+     * Update results table
+     */
+    updateResultsTable(results) {
+        const tableBody = document.getElementById('resultsTableBody');
+        if (!tableBody) return;
+        
+        // Clear existing rows
+        tableBody.innerHTML = '';
+        
+        results.forEach(result => {
+            const row = document.createElement('tr');
+            
+            const timeCell = document.createElement('td');
+            timeCell.textContent = `${result.time}`;
+            
+            const predictionCell = document.createElement('td');
+            predictionCell.textContent = result.prediction === 1 ? 'NG' : 'OK';
+            predictionCell.className = result.prediction === 1 ? 'status-ng' : 'status-ok';
+            
+            const confidenceCell = document.createElement('td');
+            confidenceCell.textContent = result.confidence.toFixed(3);
+            
+            const statusCell = document.createElement('td');
+            statusCell.textContent = result.status;
+            statusCell.className = result.status === 'OK' ? 'status-ok' : 
+                                  result.status === 'NG' ? 'status-ng' : '';
+            
+            row.appendChild(timeCell);
+            row.appendChild(predictionCell);
+            row.appendChild(confidenceCell);
+            row.appendChild(statusCell);
+            
+            tableBody.appendChild(row);
+        });
+    }
+
+    /**
+     * Generate timeline for waveform
+     */
+    generateTimeline(duration) {
+        const timeline = document.getElementById('timeline');
+        if (!timeline) return;
+        
+        timeline.innerHTML = '';
+        
+        const intervals = Math.min(10, Math.ceil(duration));
+        for (let i = 0; i <= intervals; i++) {
+            const time = (duration * i / intervals).toFixed(1);
+            const span = document.createElement('span');
+            span.textContent = `${time}s`;
+            timeline.appendChild(span);
+        }
+    }
+
+    /**
+     * Handle detection result from server with enhanced logging and validation (Real-time mode only)
      */
     handleDetectionResult(result) {
+        // Only handle detection results in real-time mode
+        if (this.currentMode !== 'realtime') {
+            return;
+        }
+        
         try {
             console.log('📨 Detection result received:', result);
             
