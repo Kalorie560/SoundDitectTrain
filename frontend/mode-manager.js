@@ -232,6 +232,34 @@ class SimpleModeManager {
                 if (this.elements.offlineStartButtonText) {
                     this.elements.offlineStartButtonText.textContent = `録音開始 (${duration}秒)`;
                 }
+                
+                // Update app recording duration if available
+                if (window.app) {
+                    window.app.recordingDuration = duration;
+                }
+            });
+        }
+        
+        // Offline mode recording buttons
+        const offlineStartBtn = document.getElementById('offlineStartButton');
+        const offlineStopBtn = document.getElementById('offlineStopButton');
+        
+        if (offlineStartBtn) {
+            offlineStartBtn.addEventListener('click', async () => {
+                console.log('🎯 Offline start button clicked');
+                if (window.app) {
+                    const success = await window.app.startRecording();
+                    console.log(`🎯 Offline recording start result: ${success}`);
+                }
+            });
+        }
+        
+        if (offlineStopBtn) {
+            offlineStopBtn.addEventListener('click', () => {
+                console.log('🎯 Offline stop button clicked');
+                if (window.app) {
+                    window.app.stopRecording();
+                }
             });
         }
     }

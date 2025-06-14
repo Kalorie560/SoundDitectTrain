@@ -277,65 +277,6 @@ class SoundDitectApp {
             }
         }
     }
-            
-            // Check browser compatibility
-            if (!this.checkBrowserCompatibility()) {
-                this.uiController.showError('お使いのブラウザは対応していません。Chrome、Firefox、Safari、Edgeをご利用ください。');
-                return;
-            }
-            
-            // Initialize audio processor with error handling
-            try {
-                // Check microphone access first
-                const micAccess = await this.checkMicrophoneAccessSafely();
-                if (!micAccess) {
-                    this.uiController.showError('マイクへのアクセスが必要です。ブラウザの設定でマイクアクセスを許可してください。');
-                    // Continue initialization even without mic access
-                }
-                
-                this.audioProcessor = new AudioProcessor();
-                this.setupAudioProcessorCallbacks();
-            } catch (audioError) {
-                console.error('Failed to initialize audio processor:', audioError);
-                this.uiController.showError('オーディオシステムの初期化に失敗しました。録音機能が制限される可能性があります。');
-            }
-            
-            // Initialize WebSocket client with error handling
-            try {
-                this.websocketClient = new WebSocketClient();
-                this.setupWebSocketCallbacks();
-            } catch (wsError) {
-                console.error('Failed to initialize WebSocket client:', wsError);
-                this.uiController.showError('サーバー接続の初期化に失敗しました。リアルタイム機能が制限される可能性があります。');
-            }
-            
-            // Set up UI button handlers (only for real-time mode)
-            try {
-                this.uiController.setButtonHandlers(
-                    () => this.startRecording(),
-                    () => this.stopRecording(),
-                    () => this.forceReconnect()
-                );
-            } catch (handlerError) {
-                console.error('Failed to set up button handlers:', handlerError);
-            }
-            
-            this.isInitialized = true;
-            this.uiController.updateSystemStatus('システム正常');
-            
-            console.log('SoundDitect application initialized successfully');
-            
-        } catch (error) {
-            console.error('Critical initialization error:', error);
-            
-            // Ensure we have some way to show errors
-            if (this.uiController && this.uiController.showError) {
-                this.uiController.showError('アプリケーションの初期化に失敗しました: ' + error.message);
-            } else {
-                // Last resort - show alert
-                alert('アプリケーションの初期化に失敗しました: ' + error.message);
-            }
-        }
     }
     
     /**
@@ -1471,6 +1412,14 @@ let app = null;
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing SoundDitect...');
     app = new SoundDitectApp();
+    
+    // Make app globally accessible for debugging and integration
+    window.app = app;
+    
+    // Try to integrate with mode manager after app is created
+    setTimeout(() => {
+        integrateModeManager();
+    }, 200);
 });
 
 // Cleanup on page unload
@@ -1634,7 +1583,7 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 // Export for debugging
-window.SoundDitectApp = app;
+window.SoundDitectApp = SoundDitectApp;
 
 // Debug panel functions
 window.toggleDebugPanel = function() {
@@ -1717,30 +1666,37 @@ console.log('  debugHelpers.clearErrors() - Clear error log');
 console.log('  Click the 🔧 button (bottom left) for debug panel');
 
 // Integration with SimpleModeManager
+function integrateModeManager() {
+    if (window.simpleModeManager && window.app) {
+        console.log('🔗 Integrating SimpleModeManager with SoundDitectApp');
+        
+        // Set up mode change handler
+        const originalSelectMode = window.simpleModeManager.selectMode.bind(window.simpleModeManager);
+        window.simpleModeManager.selectMode = function(mode, buttonElement) {
+            console.log(`🔗 Mode change intercepted: ${mode}`);
+            
+            // Update app's current mode first
+            if (window.app) {
+                window.app.currentMode = mode;
+                console.log(`✅ App mode updated to: ${mode}`);
+            }
+            
+            // Call original method
+            originalSelectMode(mode, buttonElement);
+        };
+        
+        console.log('✅ SimpleModeManager integration complete');
+        return true;
+    }
+    return false;
+}
+
+// Try integration after DOM load and after app initialization
 document.addEventListener('DOMContentLoaded', () => {
-    // Wait for SimpleModeManager to initialize, then integrate
-    setTimeout(() => {
-        if (window.simpleModeManager && app) {
-            console.log('🔗 Integrating SimpleModeManager with SoundDitectApp');
-            
-            // Set up mode change handler
-            const originalSelectMode = window.simpleModeManager.selectMode.bind(window.simpleModeManager);
-            window.simpleModeManager.selectMode = function(mode, buttonElement) {
-                console.log(`🔗 Mode change intercepted: ${mode}`);
-                
-                // Call original method
-                originalSelectMode(mode, buttonElement);
-                
-                // Update app's current mode
-                if (app) {
-                    app.currentMode = mode;
-                    console.log(`✅ App mode updated to: ${mode}`);
-                }
-            };
-            
-            console.log('✅ SimpleModeManager integration complete');
-        }
-    }, 100);
+    // Try integration multiple times to ensure it works
+    setTimeout(integrateModeManager, 100);
+    setTimeout(integrateModeManager, 500);
+    setTimeout(integrateModeManager, 1000);
 });
 
 // Enhanced UI management methods with visual feedback
