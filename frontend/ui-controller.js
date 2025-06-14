@@ -17,6 +17,7 @@ class UIController {
             // Control buttons
             startButton: document.getElementById('startButton'),
             stopButton: document.getElementById('stopButton'),
+            reconnectButton: document.getElementById('reconnectButton'),
             
             // Settings
             sensitivitySlider: document.getElementById('sensitivitySlider'),
@@ -117,7 +118,7 @@ class UIController {
     /**
      * Set up button event handlers
      */
-    setButtonHandlers(onStart, onStop) {
+    setButtonHandlers(onStart, onStop, onReconnect = null) {
         this.elements.startButton.addEventListener('click', async () => {
             const success = await onStart();
             if (success) {
@@ -129,47 +130,109 @@ class UIController {
             onStop();
             this.setRecordingState(false);
         });
+        
+        if (this.elements.reconnectButton && onReconnect) {
+            this.elements.reconnectButton.addEventListener('click', () => {
+                onReconnect();
+                this.updateConnectionStatus('connecting');
+            });
+        }
     }
 
     /**
-     * Update connection status
+     * Update connection status with enhanced feedback
      */
-    updateConnectionStatus(status) {
+    updateConnectionStatus(status, quality = null, healthScore = null) {
         this.state.isConnected = status === 'connected';
+        this.state.connectionQuality = quality || 'unknown';
+        this.state.connectionHealthScore = healthScore || 0;
         
         let statusText = '';
         let indicatorClass = '';
+        let qualityText = '';
         
         switch (status) {
             case 'connected':
                 statusText = '接続済み';
                 indicatorClass = 'online';
                 this.elements.startButton.disabled = false;
+                qualityText = this.getQualityText(quality, healthScore);
                 break;
             case 'connecting':
-            case 'reconnecting':
                 statusText = '接続中...';
                 indicatorClass = 'connecting';
                 this.elements.startButton.disabled = true;
+                qualityText = '';
+                break;
+            case 'reconnecting':
+                statusText = '再接続中...';
+                indicatorClass = 'reconnecting';
+                this.elements.startButton.disabled = true;
+                qualityText = '接続を復旧しています';
                 break;
             case 'disconnected':
                 statusText = '切断';
                 indicatorClass = 'offline';
                 this.elements.startButton.disabled = true;
+                qualityText = '';
+                break;
+            case 'failed':
+                statusText = '接続失敗';
+                indicatorClass = 'failed';
+                this.elements.startButton.disabled = true;
+                qualityText = 'ページを再読み込みしてください';
                 break;
             case 'error':
                 statusText = '接続エラー';
-                indicatorClass = 'offline';
+                indicatorClass = 'error';
                 this.elements.startButton.disabled = true;
+                qualityText = '接続に問題があります';
                 break;
             default:
                 statusText = '不明';
                 indicatorClass = 'offline';
                 this.elements.startButton.disabled = true;
+                qualityText = '';
         }
         
-        this.elements.statusText.textContent = statusText;
+        this.elements.statusText.textContent = statusText + (qualityText ? ` (${qualityText})` : '');
         this.elements.statusIndicator.className = `status-indicator ${indicatorClass}`;
+        
+        // Add quality indicator class if connected
+        if (status === 'connected' && quality) {
+            this.elements.statusIndicator.classList.add(`quality-${quality}`);
+        }
+        
+        // Update connection quality indicator if element exists
+        const qualityIndicator = document.getElementById('connectionQuality');
+        if (qualityIndicator) {
+            qualityIndicator.textContent = qualityText;
+            qualityIndicator.className = `connection-quality ${quality || 'unknown'}`;
+        }
+        
+        // Show/hide reconnect button based on connection status
+        if (this.elements.reconnectButton) {
+            const shouldShowReconnect = status === 'failed' || status === 'error' || 
+                                       (status === 'disconnected' && !this.state.isRecording);
+            this.elements.reconnectButton.style.display = shouldShowReconnect ? 'flex' : 'none';
+        }
+    }
+    
+    /**
+     * Get human-readable quality text
+     */
+    getQualityText(quality, healthScore) {
+        if (!quality || !healthScore) return '';
+        
+        const qualityTexts = {
+            'excellent': '優秀',
+            'good': '良好',
+            'fair': '普通',
+            'poor': '不安定'
+        };
+        
+        const qualityText = qualityTexts[quality] || quality;
+        return `${qualityText} (${healthScore}%)`;
     }
 
     /**
@@ -419,11 +482,69 @@ class UIController {
     }
 
     /**
-     * Show error modal
+     * Show error modal with enhanced error handling
      */
-    showError(message) {
-        this.elements.errorMessage.textContent = message;
+    showError(message, details = null, suggestions = null) {
+        this.elements.errorMessage.innerHTML = this.formatErrorMessage(message, details, suggestions);
         this.elements.errorModal.style.display = 'block';
+        
+        // Auto-hide certain types of errors
+        if (message.includes('接続を復旧') || message.includes('再接続中')) {
+            setTimeout(() => {
+                this.hideModal();
+            }, 5000);
+        }
+    }
+    
+    /**
+     * Format error message with details and suggestions
+     */
+    formatErrorMessage(message, details, suggestions) {
+        let html = `<div class="error-message">${message}</div>`;
+        
+        if (details) {
+            html += `<div class="error-details">${details}</div>`;
+        }
+        
+        if (suggestions) {
+            html += '<div class="error-suggestions">';
+            html += '<h4>解決方法：</h4>';
+            html += '<ul>';
+            suggestions.forEach(suggestion => {
+                html += `<li>${suggestion}</li>`;
+            });
+            html += '</ul>';
+            html += '</div>';
+        }
+        
+        return html;
+    }
+    
+    /**
+     * Show connection-specific error with recovery suggestions
+     */
+    showConnectionError(error, diagnostics = null) {
+        let suggestions = [
+            'インターネット接続を確認してください',
+            'ファイアウォールやプロキシ設定を確認してください',
+            'ブラウザのページを再読み込みしてください'
+        ];
+        
+        let details = null;
+        if (diagnostics) {
+            details = `再接続回数: ${diagnostics.totalReconnections}, 接続品質: ${diagnostics.connectionQuality}`;
+            
+            // Add specific suggestions based on diagnostics
+            if (diagnostics.averageLatency > 1000) {
+                suggestions.unshift('ネットワーク接続が遅い可能性があります');
+            }
+            
+            if (diagnostics.consecutiveFailures > 5) {
+                suggestions.unshift('サーバーが応答していない可能性があります');
+            }
+        }
+        
+        this.showError(error, details, suggestions);
     }
 
     /**
