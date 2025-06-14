@@ -11,8 +11,8 @@ class WebSocketClient {
         this.isConnected = false;
         this.clientId = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 15; // Further increased retry attempts
-        this.reconnectDelay = 1000; // 1 second
+        this.maxReconnectAttempts = 10; // Reasonable retry attempts
+        this.reconnectDelay = 2000; // 2 seconds for more stable reconnection
         this.pingInterval = null;
         this.pingTimeout = null;
         
@@ -101,11 +101,13 @@ class WebSocketClient {
             this.isConnected = false;
             this.clientId = null;
             
-            // Reset recording state on disconnection
-            if (this.isRecording) {
-                console.log('Recording session terminated due to disconnection');
+            // Reset recording state on disconnection with detailed logging
+            if (this.isRecording || this.recordingSessionId) {
+                console.log('🚨 Recording session terminated due to disconnection');
+                console.log('   Previous session ID:', this.recordingSessionId);
                 this.isRecording = false;
                 this.recordingSessionId = null;
+                console.log('✅ Recording state reset for restart capability');
             }
             
             // Stop ping mechanism
@@ -190,16 +192,23 @@ class WebSocketClient {
     }
 
     /**
-     * Start recording session
+     * Start recording session with improved state management
      */
     startRecording() {
         if (!this.isConnected) {
-            console.warn('Cannot start recording: WebSocket not connected');
+            console.warn('❌ Cannot start recording: WebSocket not connected');
             return false;
         }
         
+        // Clean up any previous recording state
+        if (this.isRecording) {
+            console.log('🔄 Cleaning up previous recording session before starting new one');
+            this.stopRecording();
+        }
+        
+        // Generate new session ID and start recording
         this.isRecording = true;
-        this.recordingSessionId = Date.now().toString();
+        this.recordingSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const message = {
             type: 'start_recording',
@@ -207,30 +216,50 @@ class WebSocketClient {
             timestamp: Date.now()
         };
         
-        this.sendMessage(message);
-        console.log('Recording session started:', this.recordingSessionId);
-        return true;
+        const success = this.sendMessage(message);
+        if (success) {
+            console.log('✅ Recording session started:', this.recordingSessionId);
+            return true;
+        } else {
+            console.error('❌ Failed to send start recording message');
+            this.isRecording = false;
+            this.recordingSessionId = null;
+            return false;
+        }
     }
 
     /**
-     * Stop recording session
+     * Stop recording session with improved cleanup
      */
     stopRecording() {
-        if (!this.isRecording) {
-            console.warn('Recording is not active');
+        if (!this.isRecording && !this.recordingSessionId) {
+            console.warn('⚠️ Recording is not active');
             return false;
         }
         
-        const message = {
-            type: 'stop_recording',
-            session_id: this.recordingSessionId,
-            timestamp: Date.now()
-        };
+        console.log('🛑 Stopping recording session:', this.recordingSessionId);
         
-        this.sendMessage(message);
+        // Send stop message if connected
+        if (this.isConnected && this.recordingSessionId) {
+            const message = {
+                type: 'stop_recording',
+                session_id: this.recordingSessionId,
+                timestamp: Date.now()
+            };
+            
+            const success = this.sendMessage(message);
+            if (success) {
+                console.log('✅ Stop recording message sent successfully');
+            } else {
+                console.warn('⚠️ Failed to send stop recording message - proceeding with local cleanup');
+            }
+        }
+        
+        // Always clean up local state regardless of message send status
         this.isRecording = false;
         this.recordingSessionId = null;
-        console.log('Recording session stopped');
+        
+        console.log('✅ Recording session stopped and state cleaned up');
         return true;
     }
 
@@ -327,7 +356,7 @@ class WebSocketClient {
             if (this.isConnected) {
                 this.sendPing();
             }
-        }, 25000); // Ping every 25 seconds
+        }, 15000); // Ping every 15 seconds for more frequent keepalive
     }
 
     /**
@@ -360,7 +389,7 @@ class WebSocketClient {
         this.pingTimeout = setTimeout(() => {
             console.warn('Ping timeout - connection may be lost');
             this.handleConnectionError('接続タイムアウト');
-        }, 45000); // 45 second timeout (further extended for maximum stability)
+        }, 20000); // 20 second timeout - reasonable balance between stability and responsiveness
     }
 
     /**
@@ -389,11 +418,13 @@ class WebSocketClient {
             this.pingTimeout = null;
         }
         
-        // Reset recording state on connection error
-        if (this.isRecording) {
+        // Reset recording state on connection error with enhanced cleanup
+        if (this.isRecording || this.recordingSessionId) {
             console.log('🚨 Resetting recording state due to connection error');
+            console.log('   Affected session ID:', this.recordingSessionId);
             this.isRecording = false;
             this.recordingSessionId = null;
+            console.log('✅ Recording state completely reset - ready for restart');
         }
         
         if (this.onError) {
