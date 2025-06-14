@@ -81,8 +81,17 @@ data:
   max_memory_usage: "2GB"
   prefetch_buffer_size: 10
 
-# Data Configuration - expects real JSON files in data directory
-# JSON files should contain: {"waveforms": [[...]], "labels": ["OK", "NG"], "fs": 44100}
+# Data Configuration - Multiple JSON File Support
+# The system will automatically find and integrate ALL *.json files in the data directory
+# This allows you to use multiple JSON files as training resources instead of combining them manually
+# 
+# Supported formats:
+# - New format: {"waveforms": [[...]], "labels": ["OK", "NG"], "fs": 44100}
+# - Old format: [{"Waveform": [...], "Labels": 0}, {"Waveform": [...], "Labels": 1}]
+# 
+# Multiple file handling:
+# - Single file: Used for both training and validation
+# - Multiple files: Automatically split between training and validation based on validation_split ratio
 
 # Server Configuration
 server:

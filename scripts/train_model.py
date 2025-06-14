@@ -30,6 +30,7 @@ except AttributeError:
 import os
 import sys
 import yaml
+import json
 import asyncio
 import logging
 from pathlib import Path
@@ -94,6 +95,34 @@ def check_training_data(data_dir):
         raise FileNotFoundError("No training data available. Please add your JSON data files to the data directory.")
     
     logger.info(f"✅ Found {len(json_files)} training data files")
+    logger.info("📋 JSON files that will be used for training:")
+    
+    total_estimated_samples = 0
+    for i, json_file in enumerate(json_files, 1):
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+            
+            # Estimate sample count without full processing
+            sample_count = 0
+            if isinstance(data, list):
+                sample_count = len(data)
+                logger.info(f"   {i}. {json_file.name} - Old format with ~{sample_count} entries")
+            elif isinstance(data, dict) and 'waveforms' in data:
+                waveforms = data.get('waveforms', [])
+                labels = data.get('labels', [])
+                sample_count = min(len(waveforms), len(labels))
+                logger.info(f"   {i}. {json_file.name} - New format with ~{sample_count} samples")
+            else:
+                logger.warning(f"   {i}. {json_file.name} - Unknown format, will attempt to process")
+                
+            total_estimated_samples += sample_count
+            
+        except Exception as e:
+            logger.warning(f"   {i}. {json_file.name} - Error reading file: {e}")
+    
+    logger.info(f"🎯 Estimated total samples across all files: ~{total_estimated_samples}")
+    logger.info("📊 All JSON files in the data folder will be integrated as training resources")
     return True
 
 async def main():
