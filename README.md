@@ -20,6 +20,30 @@ SoundDitectは、PCのマイクからリアルタイムで入力される音声�
 - 📊 **リアルタイム可視化**: 音声波形とスペクトラムの実時間表示
 - 📈 **実験管理**: ClearMLによる学習プロセスの記録・管理
 - ⚡ **メモリ効率**: ストリーミング処理による大容量データ対応
+- 🔄 **動作モード選択**: リアルタイム処理またはオフライン一括処理を選択可能
+
+### 動作モード
+
+SoundDitectは、PCの性能や使用用途に応じて2つの動作モードから選択できます：
+
+#### ⚡ リアルタイムモード（デフォルト）
+- **用途**: 高性能PC向け、即座の異常検知が必要な場面
+- **動作**: 録音中にリアルタイムで1秒間隔の判定を実行
+- **特徴**:
+  - 録音と同時に判定結果が表示される
+  - WebSocketによる低遅延通信
+  - 連続監視に最適
+- **推奨環境**: Intel Core i7-10th gen / AMD Ryzen 7 4700U 以上
+
+#### 📊 オフラインモード
+- **用途**: 中〜低性能PC向け、詳細な分析が必要な場面
+- **動作**: 指定時間（5〜60秒）録音完了後に一括処理
+- **特徴**:
+  - 録音完了後に全データを一括で分析
+  - 波形全体と判定結果の詳細な可視化
+  - 時系列での判定結果とタイムライン表示
+  - 統計情報（OK/NG数、平均信頼度など）の提供
+- **推奨環境**: Intel Core i5-8th gen / AMD Ryzen 5 3600 以上
 
 ### 技術選定理由
 
@@ -142,8 +166,13 @@ python run_server.py
 
 1. ブラウザで `http://localhost:8000` にアクセス
 2. マイクアクセスを許可
-3. 「録音開始」ボタンをクリック
-4. リアルタイムで音声異常検知結果を確認
+3. **動作モードの選択**：
+   - **リアルタイム**: 即座の判定が必要な場合（デフォルト）
+   - **オフライン**: 詳細分析が必要な場合（録音時間：5〜60秒で設定）
+4. 「録音開始」ボタンをクリック
+5. 選択したモードに応じて結果を確認：
+   - **リアルタイム**: 録音中にリアルタイムで判定結果が表示
+   - **オフライン**: 録音完了後に波形可視化と詳細分析結果が表示
 
 ### プロジェクト構造
 
@@ -211,6 +240,13 @@ SoundDitect/
 4. **AI推論**: サーバーサイドでモデル推論
 5. **結果表示**: 1秒以内にUI更新
 
+#### オフライン処理
+1. **音声収録**: 指定時間（5〜60秒）の音声を一時保存
+2. **一括送信**: 録音完了後にHTTP POSTで音声データ送信
+3. **バッチ処理**: `/api/analyze_batch`エンドポイントで一括分析
+4. **波形生成**: 全体波形データとタイムライン生成
+5. **結果可視化**: 判定結果オーバーレイと統計情報表示
+
 ### ClearML実験管理
 
 ```bash
@@ -245,6 +281,30 @@ SoundDitect is a high-responsiveness, high-precision web application that analyz
 - 📊 **Real-time Visualization**: Real-time display of audio waveforms and spectrums
 - 📈 **Experiment Management**: Recording and management of learning processes with ClearML
 - ⚡ **Memory Efficiency**: Streaming processing for large-scale data handling
+- 🔄 **Operation Mode Selection**: Choose between real-time processing or offline batch processing
+
+### Operation Modes
+
+SoundDitect offers two operation modes to accommodate different PC performance levels and use cases:
+
+#### ⚡ Real-time Mode (Default)
+- **Use Case**: High-performance PCs, immediate anomaly detection required
+- **Operation**: Real-time 1-second interval detection during recording
+- **Features**:
+  - Detection results displayed simultaneously with recording
+  - Low-latency communication via WebSocket
+  - Optimal for continuous monitoring
+- **Recommended Environment**: Intel Core i7-10th gen / AMD Ryzen 7 4700U or higher
+
+#### 📊 Offline Mode
+- **Use Case**: Mid to low-performance PCs, detailed analysis required
+- **Operation**: Batch processing after completing recording (5-60 seconds configurable)
+- **Features**:
+  - Comprehensive analysis of entire recording after completion
+  - Detailed visualization of full waveform with detection results
+  - Timeline display with time-series detection results
+  - Statistical information (OK/NG counts, average confidence, etc.)
+- **Recommended Environment**: Intel Core i5-8th gen / AMD Ryzen 5 3600 or higher
 
 ### Technical Design Decisions
 
@@ -367,8 +427,13 @@ python run_server.py
 
 1. Access `http://localhost:8000` in browser
 2. Allow microphone access
-3. Click "録音開始" (Start Recording) button
-4. Check real-time audio anomaly detection results
+3. **Select Operation Mode**:
+   - **Real-time**: For immediate detection needs (default)
+   - **Offline**: For detailed analysis (configurable recording time: 5-60 seconds)
+4. Click "録音開始" (Start Recording) button
+5. Check results according to selected mode:
+   - **Real-time**: Detection results displayed in real-time during recording
+   - **Offline**: Waveform visualization and detailed analysis results shown after recording completion
 
 ### Project Structure
 
@@ -435,6 +500,13 @@ Training data is provided in the following JSON format:
 3. **WebSocket Transmission**: Base64-encoded audio data transfer
 4. **AI Inference**: Server-side model inference
 5. **Result Display**: UI update within 1 second
+
+#### Offline Processing
+1. **Audio Recording**: Temporary storage of audio for specified duration (5-60 seconds)
+2. **Batch Transmission**: HTTP POST transmission of audio data after recording completion
+3. **Batch Processing**: Comprehensive analysis via `/api/analyze_batch` endpoint
+4. **Waveform Generation**: Full waveform data and timeline generation
+5. **Result Visualization**: Detection result overlay with statistical information display
 
 ### ClearML Experiment Management
 
