@@ -29,10 +29,42 @@
                     <span id="statusText">接続中...</span>
                 </div>
 
+                <!-- Mode Selection -->
+                <div class="mode-selection">
+                    <h3>動作モード選択</h3>
+                    <div class="mode-options">
+                        <label class="mode-option">
+                            <input type="radio" name="operationMode" value="realtime" id="realtimeMode" checked>
+                            <span class="mode-label">
+                                <span class="mode-icon">⚡</span>
+                                <span class="mode-title">リアルタイム</span>
+                                <span class="mode-description">録音中にリアルタイムで判定</span>
+                            </span>
+                        </label>
+                        <label class="mode-option">
+                            <input type="radio" name="operationMode" value="offline" id="offlineMode">
+                            <span class="mode-label">
+                                <span class="mode-icon">📊</span>
+                                <span class="mode-title">オフライン</span>
+                                <span class="mode-description">録音完了後に一括判定</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Offline Mode Settings -->
+                <div class="offline-settings" id="offlineSettings" style="display: none;">
+                    <div class="setting-group">
+                        <label for="recordingDuration">録音時間 (秒):</label>
+                        <input type="range" id="recordingDuration" min="5" max="60" step="5" value="30">
+                        <span id="durationValue">30</span>
+                    </div>
+                </div>
+
                 <div class="recording-controls">
                     <button id="startButton" class="btn btn-primary" disabled>
                         <span class="btn-icon">🎤</span>
-                        録音開始
+                        <span id="startButtonText">録音開始</span>
                     </button>
                     <button id="stopButton" class="btn btn-secondary" disabled>
                         <span class="btn-icon">⏹️</span>
@@ -77,6 +109,72 @@
                         <div class="volume-bar">
                             <div class="volume-fill" id="volumeFill"></div>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Offline Mode Results -->
+            <section class="offline-results-section" id="offlineResultsSection" style="display: none;">
+                <h3>オフライン分析結果</h3>
+                
+                <!-- Processing Status -->
+                <div class="processing-status" id="processingStatus">
+                    <div class="processing-indicator">
+                        <div class="spinner" id="processingSpinner" style="display: none;"></div>
+                        <span id="processingText">待機中</span>
+                    </div>
+                    <div class="progress-bar" id="progressBar" style="display: none;">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+
+                <!-- Waveform with Judgments -->
+                <div class="waveform-analysis">
+                    <div class="waveform-container">
+                        <canvas id="waveformCanvas" width="800" height="300"></canvas>
+                        <div class="timeline" id="timeline"></div>
+                    </div>
+                    
+                    <!-- Analysis Summary -->
+                    <div class="analysis-summary" id="analysisSummary">
+                        <div class="summary-stats">
+                            <div class="stat-card">
+                                <h4>総録音時間</h4>
+                                <span id="totalDuration">--</span>
+                            </div>
+                            <div class="stat-card">
+                                <h4>OK判定</h4>
+                                <span id="okCount" class="ok-count">--</span>
+                            </div>
+                            <div class="stat-card">
+                                <h4>NG判定</h4>
+                                <span id="ngCount" class="ng-count">--</span>
+                            </div>
+                            <div class="stat-card">
+                                <h4>平均信頼度</h4>
+                                <span id="avgConfidence">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Results -->
+                <div class="detailed-results" id="detailedResults">
+                    <h4>詳細結果</h4>
+                    <div class="results-table-container">
+                        <table class="results-table" id="resultsTable">
+                            <thead>
+                                <tr>
+                                    <th>時間 (秒)</th>
+                                    <th>判定</th>
+                                    <th>信頼度</th>
+                                    <th>状態</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsTableBody">
+                                <!-- Results will be populated here -->
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
