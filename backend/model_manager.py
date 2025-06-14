@@ -174,13 +174,13 @@ class AudioDataset(Dataset):
         self.augment = augment
         self.data_indices = []
         
-        logger.info(f"📊 Initializing AudioDataset with {len(data_files)} files")
+        logger.info(f"📊 Initializing AudioDataset - integrating {len(data_files)} JSON files into unified dataset")
         
-        # Build index of all samples
+        # Build index of all samples across all files
         total_samples = 0
         for file_idx, file_path in enumerate(data_files):
             try:
-                logger.info(f"📁 Processing file {file_idx + 1}/{len(data_files)}: {file_path}")
+                logger.info(f"📁 Processing file {file_idx + 1}/{len(data_files)}: {file_path.name}")
                 
                 with open(file_path, 'r') as f:
                     data = json.load(f)
@@ -236,7 +236,8 @@ class AudioDataset(Dataset):
             except Exception as e:
                 logger.error(f"   ❌ Could not process file {file_path}: {e}")
         
-        logger.info(f"🎯 Dataset initialization complete: {total_samples} total samples from {len(data_files)} files")
+        logger.info(f"🎯 JSON file integration complete: {total_samples} total samples unified from {len(data_files)} files")
+        logger.info(f"✨ All JSON training files in data folder have been successfully integrated into the dataset")
     
     def __len__(self):
         return len(self.data_indices)
@@ -514,6 +515,10 @@ class ModelManager:
             # Handle small datasets intelligently
             validation_split = self.config['training']['validation_split']
             
+            logger.info(f"🔄 Integrating {len(data_files)} JSON files as training resources:")
+            for i, file_path in enumerate(data_files, 1):
+                logger.info(f"   {i}. {file_path.name}")
+            
             if len(data_files) == 1:
                 # For single file, use it for both training and validation
                 # This prevents empty training sets with small datasets
@@ -526,7 +531,13 @@ class ModelManager:
                 train_files = data_files[:split_idx]
                 val_files = data_files[split_idx:]
                 
-                logger.info(f"📋 Multiple files detected - {len(train_files)} for training, {len(val_files)} for validation")
+                logger.info(f"📋 Multiple files detected - splitting for training/validation:")
+                logger.info(f"   🎯 Training files ({len(train_files)}):")
+                for i, file_path in enumerate(train_files, 1):
+                    logger.info(f"      {i}. {file_path.name}")
+                logger.info(f"   ✅ Validation files ({len(val_files)}):")
+                for i, file_path in enumerate(val_files, 1):
+                    logger.info(f"      {i}. {file_path.name}")
             
             # Create datasets
             train_dataset = AudioDataset(train_files, self.config, augment=True)
