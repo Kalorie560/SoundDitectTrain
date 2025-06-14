@@ -32,39 +32,251 @@ class SoundDitectApp {
     }
 
     /**
-     * Initialize the application
+     * Initialize the application with enhanced error handling and logging
      */
     async initialize() {
+        const initStart = Date.now();
+        console.log('🚀 Starting SoundDitect application initialization...');
+        
         try {
-            console.log('Initializing SoundDitect application...');
+            // Phase 1: UI Controller initialization
+            await this.initializeUIController();
             
-            // Initialize UI Controller with error handling
-            try {
-                this.uiController = new UIController();
-                if (this.uiController) {
-                    this.uiController.updateSystemStatus('初期化中...');
-                }
-            } catch (uiError) {
-                console.error('Failed to initialize UI Controller:', uiError);
-                // Create a minimal fallback UI controller
-                this.uiController = {
-                    showError: (message) => {
-                        console.error('UI Error:', message);
-                        alert(message); // Fallback error display
-                    },
-                    updateSystemStatus: (status) => {
-                        console.log('System Status:', status);
-                    },
-                    setButtonHandlers: () => {},
-                    setRecordingState: () => {},
-                    updateConnectionStatus: () => {},
-                    updateDetectionResult: () => {},
-                    updateVolume: () => {},
-                    drawAudioVisualization: () => {},
-                    getSensitivity: () => 0.5,
-                    getStatistics: () => ({})
-                };
+            // Phase 2: Browser compatibility check
+            this.checkBrowserCompatibilityWithLogging();
+            
+            // Phase 3: Audio system initialization
+            await this.initializeAudioSystem();
+            
+            // Phase 4: WebSocket initialization
+            await this.initializeWebSocketSystem();
+            
+            // Phase 5: UI event handlers
+            this.setupUIHandlers();
+            
+            // Mark as initialized
+            this.isInitialized = true;
+            const initTime = Date.now() - initStart;
+            
+            console.log(`✅ SoundDitect initialized successfully in ${initTime}ms`);
+            this.uiController.updateSystemStatus('システム正常');
+            
+            // Log successful initialization
+            window.errorLogger.log(
+                new Error('Initialization Success'),
+                'App Initialize',
+                { initTime, phase: 'complete' }
+            );
+            
+        } catch (error) {
+            const initTime = Date.now() - initStart;
+            console.error(`❌ Critical initialization error after ${initTime}ms:`, error);
+            
+            // Log the critical error
+            window.errorLogger.log(error, 'App Initialize Critical', {
+                initTime,
+                phase: 'failed',
+                isInitialized: this.isInitialized
+            });
+            
+            // Ensure we have some way to show errors
+            this.handleCriticalInitializationError(error);
+        }
+    }
+    
+    /**
+     * Initialize UI Controller with comprehensive error handling
+     */
+    async initializeUIController() {
+        console.log('🎨 Phase 1: Initializing UI Controller...');
+        
+        try {
+            this.uiController = new UIController();
+            if (this.uiController) {
+                this.uiController.updateSystemStatus('初期化中...');
+                console.log('✅ UI Controller initialized successfully');
+            } else {
+                throw new Error('UI Controller constructor returned null');
             }
+        } catch (uiError) {
+            window.errorLogger.log(uiError, 'UI Controller Init', {
+                elementCount: document.querySelectorAll('*').length,
+                canvasExists: !!document.getElementById('audioCanvas'),
+                domReady: document.readyState
+            });
+            
+            console.warn('⚠️ UI Controller failed, creating fallback...');
+            
+            // Create a comprehensive fallback UI controller
+            this.uiController = this.createFallbackUIController();
+        }
+    }
+    
+    /**
+     * Create fallback UI controller when main initialization fails
+     */
+    createFallbackUIController() {
+        return {
+            showError: (message) => {
+                console.error('🚨 UI Error (Fallback):', message);
+                // Try to show modal, fallback to alert
+                const modal = document.getElementById('errorModal');
+                const errorMessage = document.getElementById('errorMessage');
+                if (modal && errorMessage) {
+                    errorMessage.textContent = message;
+                    modal.style.display = 'block';
+                } else {
+                    alert(message);
+                }
+            },
+            updateSystemStatus: (status) => {
+                console.log('📊 System Status (Fallback):', status);
+                const statusEl = document.getElementById('systemStatus');
+                if (statusEl) statusEl.textContent = status;
+            },
+            setButtonHandlers: () => console.log('🔘 Button handlers setup (Fallback)'),
+            setRecordingState: (recording) => console.log('🎤 Recording state (Fallback):', recording),
+            updateConnectionStatus: (status) => console.log('🔗 Connection status (Fallback):', status),
+            updateDetectionResult: (result) => console.log('🎯 Detection result (Fallback):', result),
+            updateVolume: (volume) => console.log('🔊 Volume (Fallback):', volume),
+            drawAudioVisualization: () => console.log('📊 Audio visualization (Fallback)'),
+            getSensitivity: () => 0.5,
+            getStatistics: () => ({ fallback: true })
+        };
+    }
+    
+    /**
+     * Check browser compatibility with detailed logging
+     */
+    checkBrowserCompatibilityWithLogging() {
+        console.log('🔍 Phase 2: Checking browser compatibility...');
+        
+        if (!this.checkBrowserCompatibility()) {
+            const compatibilityError = new Error('Browser not compatible');
+            window.errorLogger.log(compatibilityError, 'Browser Compatibility', {
+                userAgent: navigator.userAgent,
+                webAudio: !!(window.AudioContext || window.webkitAudioContext),
+                getUserMedia: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                webSocket: !!window.WebSocket
+            });
+            
+            this.uiController.showError('お使いのブラウザは対応していません。Chrome、Firefox、Safari、Edgeをご利用ください。');
+            throw compatibilityError;
+        }
+        
+        console.log('✅ Browser compatibility check passed');
+    }
+    
+    /**
+     * Initialize audio system with enhanced error handling
+     */
+    async initializeAudioSystem() {
+        console.log('🎧 Phase 3: Initializing audio system...');
+        
+        try {
+            // Check microphone access first
+            const micAccess = await this.checkMicrophoneAccessSafely();
+            if (!micAccess) {
+                console.warn('⚠️ Microphone access denied or unavailable');
+                window.errorLogger.log(
+                    new Error('Microphone access unavailable'),
+                    'Audio System Init',
+                    { micAccess: false, reason: 'Permission denied or not available' }
+                );
+            }
+            
+            this.audioProcessor = new AudioProcessor();
+            this.setupAudioProcessorCallbacks();
+            
+            console.log('✅ Audio system initialized successfully');
+            
+        } catch (audioError) {
+            window.errorLogger.log(audioError, 'Audio System Init', {
+                audioContextSupport: !!(window.AudioContext || window.webkitAudioContext),
+                getUserMediaSupport: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+            });
+            
+            console.warn('⚠️ Audio system initialization failed, continuing with limited functionality');
+            this.uiController.showError('オーディオシステムの初期化に失敗しました。録音機能が制限される可能性があります。');
+            
+            // Don't throw, continue with limited functionality
+        }
+    }
+    
+    /**
+     * Initialize WebSocket system with enhanced error handling
+     */
+    async initializeWebSocketSystem() {
+        console.log('🌐 Phase 4: Initializing WebSocket system...');
+        
+        try {
+            this.websocketClient = new WebSocketClient();
+            this.setupWebSocketCallbacks();
+            
+            console.log('✅ WebSocket system initialized successfully');
+            
+        } catch (wsError) {
+            window.errorLogger.log(wsError, 'WebSocket System Init', {
+                webSocketSupport: !!window.WebSocket,
+                currentHost: window.location.host
+            });
+            
+            console.warn('⚠️ WebSocket system initialization failed, real-time features will be limited');
+            this.uiController.showError('サーバー接続の初期化に失敗しました。リアルタイム機能が制限される可能性があります。');
+            
+            // Don't throw, continue with offline-only functionality
+        }
+    }
+    
+    /**
+     * Set up UI handlers with error protection
+     */
+    setupUIHandlers() {
+        console.log('🔘 Phase 5: Setting up UI handlers...');
+        
+        try {
+            this.uiController.setButtonHandlers(
+                () => this.startRecording(),
+                () => this.stopRecording(),
+                () => this.forceReconnect()
+            );
+            
+            console.log('✅ UI handlers setup successfully');
+            
+        } catch (handlerError) {
+            window.errorLogger.log(handlerError, 'UI Handlers Setup', {
+                uiControllerExists: !!this.uiController,
+                buttonsExist: {
+                    start: !!document.getElementById('startButton'),
+                    stop: !!document.getElementById('stopButton'),
+                    reconnect: !!document.getElementById('reconnectButton')
+                }
+            });
+            
+            console.warn('⚠️ UI handlers setup failed, some controls may not work');
+        }
+    }
+    
+    /**
+     * Handle critical initialization errors
+     */
+    handleCriticalInitializationError(error) {
+        const errorMessage = `アプリケーションの初期化に失敗しました: ${error.message}`;
+        
+        if (this.uiController && this.uiController.showError) {
+            this.uiController.showError(errorMessage);
+        } else {
+            // Last resort - direct DOM manipulation
+            const modal = document.getElementById('errorModal');
+            const errorMessageEl = document.getElementById('errorMessage');
+            if (modal && errorMessageEl) {
+                errorMessageEl.textContent = errorMessage + '\n\nコンソールで errorLogger.exportErrorReport() を実行してエラーレポートをダウンロードできます。';
+                modal.style.display = 'block';
+            } else {
+                alert(errorMessage);
+            }
+        }
+    }
             
             // Check browser compatibility
             if (!this.checkBrowserCompatibility()) {
@@ -1281,30 +1493,134 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// Global error handler with better recovery
+// Enhanced error logging system
+class ErrorLogger {
+    constructor() {
+        this.errors = [];
+        this.maxErrors = 50;
+        this.isDebugMode = true; // Enable detailed logging
+    }
+    
+    log(error, context = 'Unknown', details = {}) {
+        const errorEntry = {
+            timestamp: new Date().toISOString(),
+            error: error.message || error,
+            stack: error.stack || 'No stack trace',
+            context: context,
+            details: details,
+            userAgent: navigator.userAgent,
+            url: window.location.href
+        };
+        
+        this.errors.push(errorEntry);
+        
+        // Keep only recent errors
+        if (this.errors.length > this.maxErrors) {
+            this.errors.shift();
+        }
+        
+        // Console logging with enhanced formatting
+        console.group(`🚨 Error in ${context}`);
+        console.error('Error:', error.message || error);
+        console.error('Stack:', error.stack || 'No stack trace');
+        console.error('Context Details:', details);
+        console.error('Timestamp:', errorEntry.timestamp);
+        console.groupEnd();
+        
+        // Store in localStorage for persistence
+        try {
+            localStorage.setItem('soundditect_errors', JSON.stringify(this.errors.slice(-10)));
+        } catch (e) {
+            console.warn('Could not store errors in localStorage:', e);
+        }
+        
+        return errorEntry;
+    }
+    
+    getErrors() {
+        return this.errors;
+    }
+    
+    getErrorSummary() {
+        return {
+            totalErrors: this.errors.length,
+            recentErrors: this.errors.slice(-5),
+            errorContexts: [...new Set(this.errors.map(e => e.context))],
+            timeRange: {
+                first: this.errors[0]?.timestamp,
+                last: this.errors[this.errors.length - 1]?.timestamp
+            }
+        };
+    }
+    
+    exportErrorReport() {
+        const report = {
+            summary: this.getErrorSummary(),
+            allErrors: this.errors,
+            systemInfo: {
+                userAgent: navigator.userAgent,
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                appInitialized: app?.isInitialized || false
+            }
+        };
+        
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `soundditect-error-report-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        console.log('📋 Error report exported. Total errors:', this.errors.length);
+    }
+}
+
+// Create global error logger
+window.errorLogger = new ErrorLogger();
+
+// Enhanced global error handler with better recovery
 window.addEventListener('error', (event) => {
-    console.error('Global error:', event.error);
-    console.error('Error details:', {
+    const errorDetails = {
         filename: event.filename,
         lineno: event.lineno,
         colno: event.colno,
-        message: event.message
-    });
+        message: event.message,
+        type: 'Javascript Error'
+    };
     
-    // Only show error to user if app has initialized successfully
+    // Log error with enhanced context
+    window.errorLogger.log(event.error || new Error(event.message), 'Global Handler', errorDetails);
+    
+    // Only show error to user if app has fully initialized
     if (app && app.isInitialized && app.uiController && app.uiController.showError) {
-        // Don't show errors during initialization phase
-        if (app.isInitialized) {
-            app.uiController.showError('予期しないエラーが発生しました。ページを再読み込みしてください。');
-        }
+        // Wait a moment before showing to avoid startup noise
+        setTimeout(() => {
+            if (app.isInitialized) {
+                app.uiController.showError('予期しないエラーが発生しました。コンソールで詳細を確認してください。');
+            }
+        }, 1000);
     } else {
-        console.warn('Error occurred during app initialization, not showing to user');
+        console.warn('🚧 Error occurred during app initialization - errors logged but not shown to user');
+        console.warn('💡 Check errorLogger.getErrors() for detailed error information');
     }
 });
 
-// Handle unhandled promise rejections
+// Enhanced unhandled promise rejection handler
 window.addEventListener('unhandledrejection', (event) => {
-    console.error('Unhandled promise rejection:', event.reason);
+    const errorDetails = {
+        reason: event.reason,
+        promise: event.promise,
+        type: 'Promise Rejection'
+    };
+    
+    // Log the rejection with context
+    window.errorLogger.log(
+        event.reason instanceof Error ? event.reason : new Error(String(event.reason)),
+        'Promise Rejection',
+        errorDetails
+    );
     
     // Prevent the error from showing in console as "Uncaught"
     event.preventDefault();
@@ -1312,11 +1628,93 @@ window.addEventListener('unhandledrejection', (event) => {
     // Only show to user if app is running normally
     if (app && app.isInitialized && app.uiController) {
         app.uiController.showError('通信エラーが発生しました。接続を確認してください。');
+    } else {
+        console.warn('🚧 Promise rejection during initialization - logged but not shown to user');
     }
 });
 
 // Export for debugging
 window.SoundDitectApp = app;
+
+// Debug panel functions
+window.toggleDebugPanel = function() {
+    const panel = document.getElementById('debugPanel');
+    const info = document.getElementById('debugInfo');
+    
+    if (panel.style.display === 'none') {
+        // Show panel and update info
+        updateDebugInfo();
+        panel.style.display = 'block';
+    } else {
+        panel.style.display = 'none';
+    }
+};
+
+function updateDebugInfo() {
+    const info = document.getElementById('debugInfo');
+    if (!info) return;
+    
+    const errorSummary = window.errorLogger?.getErrorSummary() || { totalErrors: 0 };
+    const appStatus = {
+        initialized: app?.isInitialized || false,
+        recording: app?.isRecording || false,
+        mode: app?.currentMode || 'unknown'
+    };
+    
+    const systemInfo = {
+        userAgent: navigator.userAgent.substring(0, 50) + '...',
+        url: window.location.pathname,
+        timestamp: new Date().toLocaleTimeString()
+    };
+    
+    info.innerHTML = `
+        <div><strong>Errors:</strong> ${errorSummary.totalErrors}</div>
+        <div><strong>App:</strong> ${appStatus.initialized ? '✅' : '❌'} Init, ${appStatus.recording ? '🎤' : '⏹️'} Rec</div>
+        <div><strong>Mode:</strong> ${appStatus.mode}</div>
+        <div><strong>Time:</strong> ${systemInfo.timestamp}</div>
+        <div style="margin-top: 8px; font-size: 10px; color: #a0aec0;">
+            Click Export to download detailed error log
+        </div>
+    `;
+}
+
+// Update debug info every 5 seconds if panel is visible
+setInterval(() => {
+    const panel = document.getElementById('debugPanel');
+    if (panel && panel.style.display !== 'none') {
+        updateDebugInfo();
+    }
+}, 5000);
+
+// Console helper functions for users
+window.debugHelpers = {
+    getErrors: () => window.errorLogger?.getErrors() || [],
+    getErrorSummary: () => window.errorLogger?.getErrorSummary() || {},
+    exportErrors: () => window.errorLogger?.exportErrorReport(),
+    getAppState: () => ({
+        initialized: app?.isInitialized,
+        recording: app?.isRecording,
+        mode: app?.currentMode,
+        components: {
+            uiController: !!app?.uiController,
+            audioProcessor: !!app?.audioProcessor,
+            websocketClient: !!app?.websocketClient
+        }
+    }),
+    clearErrors: () => {
+        if (window.errorLogger) {
+            window.errorLogger.errors = [];
+            console.log('🧹 Error log cleared');
+        }
+    }
+};
+
+console.log('🛠️ Debug helpers available:');
+console.log('  debugHelpers.getErrors() - Get all errors');
+console.log('  debugHelpers.exportErrors() - Export error report');
+console.log('  debugHelpers.getAppState() - Get app status');
+console.log('  debugHelpers.clearErrors() - Clear error log');
+console.log('  Click the 🔧 button (bottom left) for debug panel');
 
 // Integration with SimpleModeManager
 document.addEventListener('DOMContentLoaded', () => {

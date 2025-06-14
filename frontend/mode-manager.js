@@ -21,52 +21,173 @@ class SimpleModeManager {
     initialize() {
         console.log('🎯 Initializing SimpleModeManager...');
         
-        // Cache all DOM elements
-        this.cacheElements();
-        
-        // Set up event listeners
-        this.setupEventListeners();
-        
-        // Show mode selection initially
-        this.showModeSelection();
-        
-        console.log('✅ SimpleModeManager initialized successfully');
+        try {
+            // Cache all DOM elements with error handling
+            this.cacheElements();
+            
+            // Set up event listeners with error handling
+            this.setupEventListeners();
+            
+            // Show mode selection initially
+            this.showModeSelection();
+            
+            console.log('✅ SimpleModeManager initialized successfully');
+            
+            // Log successful initialization
+            if (window.errorLogger) {
+                window.errorLogger.log(
+                    new Error('SimpleModeManager initialization success'),
+                    'Mode Manager Init',
+                    { 
+                        elementsFound: Object.keys(this.elements).filter(key => this.elements[key]).length,
+                        totalElements: Object.keys(this.elements).length
+                    }
+                );
+            }
+            
+        } catch (error) {
+            console.error('❌ SimpleModeManager initialization failed:', error);
+            
+            if (window.errorLogger) {
+                window.errorLogger.log(error, 'Mode Manager Init', {
+                    domReady: document.readyState,
+                    elementsAttempted: Object.keys(this.elements || {}).length
+                });
+            }
+            
+            // Create fallback mode manager
+            this.createFallbackModeManager();
+        }
     }
 
     cacheElements() {
-        // Mode selection elements
-        this.elements.modeSelectionPanel = document.querySelector('.mode-selection-panel');
-        this.elements.realtimeModeCard = document.getElementById('realtimeModeCard');
-        this.elements.offlineModeCard = document.getElementById('offlineModeCard');
-        this.elements.selectRealtimeBtn = document.getElementById('selectRealtimeMode');
-        this.elements.selectOfflineBtn = document.getElementById('selectOfflineMode');
+        console.log('📋 Caching DOM elements...');
         
-        // Interface elements
-        this.elements.realtimeInterface = document.getElementById('realtimeInterface');
-        this.elements.offlineInterface = document.getElementById('offlineInterface');
-        this.elements.realtimeResults = document.getElementById('realtimeResults');
-        this.elements.offlineResults = document.getElementById('offlineResults');
+        // Initialize elements object
+        this.elements = {};
         
-        // Back buttons
-        this.elements.backFromRealtime = document.getElementById('backFromRealtime');
-        this.elements.backFromOffline = document.getElementById('backFromOffline');
+        // Element selectors with fallback descriptions
+        const elementSelectors = {
+            // Mode selection elements
+            modeSelectionPanel: { selector: '.mode-selection-panel', type: 'class', required: true },
+            realtimeModeCard: { selector: 'realtimeModeCard', type: 'id', required: false },
+            offlineModeCard: { selector: 'offlineModeCard', type: 'id', required: false },
+            selectRealtimeBtn: { selector: 'selectRealtimeMode', type: 'id', required: true },
+            selectOfflineBtn: { selector: 'selectOfflineMode', type: 'id', required: true },
+            
+            // Interface elements
+            realtimeInterface: { selector: 'realtimeInterface', type: 'id', required: true },
+            offlineInterface: { selector: 'offlineInterface', type: 'id', required: true },
+            realtimeResults: { selector: 'realtimeResults', type: 'id', required: false },
+            offlineResults: { selector: 'offlineResults', type: 'id', required: false },
+            
+            // Back buttons
+            backFromRealtime: { selector: 'backFromRealtime', type: 'id', required: false },
+            backFromOffline: { selector: 'backFromOffline', type: 'id', required: false },
+            
+            // Other controls
+            recordingDuration: { selector: 'recordingDuration', type: 'id', required: false },
+            durationValue: { selector: 'durationValue', type: 'id', required: false },
+            offlineStartButtonText: { selector: 'offlineStartButtonText', type: 'id', required: false }
+        };
         
-        // Other controls
-        this.elements.recordingDuration = document.getElementById('recordingDuration');
-        this.elements.durationValue = document.getElementById('durationValue');
-        this.elements.offlineStartButtonText = document.getElementById('offlineStartButtonText');
+        // Cache elements with error handling
+        let foundElements = 0;
+        let missingRequired = [];
         
-        // Validate required elements
-        const requiredElements = [
-            'modeSelectionPanel', 'selectRealtimeBtn', 'selectOfflineBtn',
-            'realtimeInterface', 'offlineInterface'
-        ];
+        for (const [name, config] of Object.entries(elementSelectors)) {
+            try {
+                if (config.type === 'id') {
+                    this.elements[name] = document.getElementById(config.selector);
+                } else if (config.type === 'class') {
+                    this.elements[name] = document.querySelector(config.selector);
+                }
+                
+                if (this.elements[name]) {
+                    foundElements++;
+                    console.log(`✅ Found ${name}: ${config.selector}`);
+                } else {
+                    console.warn(`⚠️ Missing ${name}: ${config.selector}${config.required ? ' (REQUIRED)' : ''}`);
+                    if (config.required) {
+                        missingRequired.push(name);
+                    }
+                }
+            } catch (error) {
+                console.error(`❌ Error caching ${name}:`, error);
+                if (window.errorLogger) {
+                    window.errorLogger.log(error, 'Mode Manager Element Cache', {
+                        elementName: name,
+                        selector: config.selector,
+                        type: config.type
+                    });
+                }
+            }
+        }
         
-        for (const elementName of requiredElements) {
-            if (!this.elements[elementName]) {
-                console.error(`❌ Required element not found: ${elementName}`);
-            } else {
-                console.log(`✅ Found element: ${elementName}`);
+        console.log(`📊 Cached ${foundElements}/${Object.keys(elementSelectors).length} elements`);
+        
+        // Check for missing required elements
+        if (missingRequired.length > 0) {
+            const error = new Error(`Missing required elements: ${missingRequired.join(', ')}`);
+            if (window.errorLogger) {
+                window.errorLogger.log(error, 'Mode Manager Required Elements', {
+                    missingRequired,
+                    foundElements,
+                    totalElements: Object.keys(elementSelectors).length,
+                    domReady: document.readyState
+                });
+            }
+            throw error;
+        }
+    }
+    
+    /**
+     * Create fallback mode manager when initialization fails
+     */
+    createFallbackModeManager() {
+        console.log('🛡️ Creating fallback mode manager...');
+        
+        // Reset state
+        this.currentMode = null;
+        this.isTransitioning = false;
+        this.elements = {};
+        
+        // Try to find elements with simple selectors
+        try {
+            const realtimeBtn = document.getElementById('selectRealtimeMode');
+            const offlineBtn = document.getElementById('selectOfflineMode');
+            
+            if (realtimeBtn) {
+                realtimeBtn.onclick = () => {
+                    console.log('🚨 Fallback: Real-time mode clicked');
+                    realtimeBtn.textContent = 'モード選択が無効です - ページを再読み込みしてください';
+                    realtimeBtn.disabled = true;
+                };
+            }
+            
+            if (offlineBtn) {
+                offlineBtn.onclick = () => {
+                    console.log('🚨 Fallback: Offline mode clicked');
+                    offlineBtn.textContent = 'モード選択が無効です - ページを再読み込みしてください';
+                    offlineBtn.disabled = true;
+                };
+            }
+            
+            // Show error message to user
+            setTimeout(() => {
+                if (window.app && window.app.uiController) {
+                    window.app.uiController.showError(
+                        'モード選択機能の初期化に失敗しました。ページを再読み込みしてください。\n\n詳細はコンソール (F12) で errorLogger.getErrors() を確認してください。'
+                    );
+                }
+            }, 1000);
+            
+        } catch (fallbackError) {
+            console.error('❌ Even fallback mode manager failed:', fallbackError);
+            if (window.errorLogger) {
+                window.errorLogger.log(fallbackError, 'Mode Manager Fallback', {
+                    originalError: 'SimpleModeManager initialization failed'
+                });
             }
         }
     }

@@ -253,6 +253,19 @@
         </div>
     </div>
 
+    <!-- Debug Panel (Hidden by default) -->
+    <div id="debugPanel" style="display: none; position: fixed; bottom: 20px; right: 20px; background: rgba(0,0,0,0.9); color: white; padding: 15px; border-radius: 10px; z-index: 10000; max-width: 300px; font-size: 12px;">
+        <h4 style="margin: 0 0 10px 0; color: #4299e1;">🔧 Debug Panel</h4>
+        <div id="debugInfo"></div>
+        <div style="margin-top: 10px;">
+            <button onclick="window.errorLogger?.exportErrorReport()" style="background: #e53e3e; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-right: 5px;">Export Errors</button>
+            <button onclick="document.getElementById('debugPanel').style.display='none'" style="background: #4a5568; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer;">Close</button>
+        </div>
+    </div>
+
+    <!-- Debug Toggle Button -->
+    <div id="debugToggle" style="position: fixed; bottom: 20px; left: 20px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 50%; cursor: pointer; z-index: 9999; font-size: 18px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;" onclick="toggleDebugPanel()" title="Toggle Debug Panel">🔧</div>
+
     <!-- Scripts -->
     <script src="mode-manager.js"></script>
     <script src="audio-processor.js"></script>

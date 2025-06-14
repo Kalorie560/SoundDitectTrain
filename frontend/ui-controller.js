@@ -57,18 +57,9 @@ class UIController {
             systemStatus: document.getElementById('systemStatus')
         };
         
-        // Canvas context for audio visualization
+        // Canvas context for audio visualization with enhanced error handling
         this.canvasContext = null;
-        if (this.elements.audioCanvas) {
-            try {
-                this.canvasContext = this.elements.audioCanvas.getContext('2d');
-            } catch (error) {
-                console.error('Failed to get canvas context:', error);
-                this.canvasContext = null;
-            }
-        } else {
-            console.warn('Audio canvas element not found');
-        }
+        this.initializeCanvas();
         
         // Application state
         this.state = {
@@ -94,8 +85,79 @@ class UIController {
     /**
      * Initialize UI components and event listeners
      */
+    /**
+     * Initialize canvas with comprehensive error handling
+     */
+    initializeCanvas() {
+        try {
+            if (this.elements.audioCanvas) {
+                // Check if canvas is accessible
+                if (typeof this.elements.audioCanvas.getContext !== 'function') {
+                    throw new Error('Canvas getContext method not available');
+                }
+                
+                this.canvasContext = this.elements.audioCanvas.getContext('2d');
+                
+                if (!this.canvasContext) {
+                    throw new Error('Failed to obtain 2D canvas context');
+                }
+                
+                console.log('✅ Canvas context initialized successfully');
+                
+                // Test canvas functionality
+                this.canvasContext.fillStyle = '#1a202c';
+                this.canvasContext.fillRect(0, 0, 10, 10);
+                
+            } else {
+                console.warn('⚠️ Audio canvas element not found in DOM');
+                if (window.errorLogger) {
+                    window.errorLogger.log(
+                        new Error('Audio canvas element not found'),
+                        'UI Controller Canvas',
+                        { 
+                            canvasElementExists: false,
+                            domReady: document.readyState,
+                            elementsFound: Object.keys(this.elements).filter(key => this.elements[key] !== null)
+                        }
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('❌ Canvas initialization failed:', error);
+            if (window.errorLogger) {
+                window.errorLogger.log(error, 'UI Controller Canvas', {
+                    canvasElement: !!this.elements.audioCanvas,
+                    canvasType: this.elements.audioCanvas?.toString(),
+                    contextSupport: !!(this.elements.audioCanvas?.getContext),
+                    webglSupport: !!(this.elements.audioCanvas?.getContext && this.elements.audioCanvas.getContext('webgl'))
+                });
+            }
+            this.canvasContext = null;
+        }
+    }
+
     initializeUI() {
         try {
+            console.log('🎨 Initializing UI Controller components...');
+            
+            // Count available elements for diagnostics
+            const availableElements = Object.keys(this.elements).filter(key => this.elements[key] !== null).length;
+            const totalElements = Object.keys(this.elements).length;
+            console.log(`📊 Found ${availableElements}/${totalElements} DOM elements`);
+            
+            // Log missing elements for debugging
+            const missingElements = Object.keys(this.elements).filter(key => this.elements[key] === null);
+            if (missingElements.length > 0) {
+                console.warn('⚠️ Missing DOM elements:', missingElements);
+                if (window.errorLogger) {
+                    window.errorLogger.log(
+                        new Error('Missing DOM elements during UI initialization'),
+                        'UI Controller Init',
+                        { missingElements, totalElements, availableElements }
+                    );
+                }
+            }
+            
             // Sensitivity slider
             if (this.elements.sensitivitySlider && this.elements.sensitivityValue) {
                 this.elements.sensitivitySlider.addEventListener('input', (e) => {
