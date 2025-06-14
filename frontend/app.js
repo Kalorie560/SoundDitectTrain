@@ -66,7 +66,8 @@ class SoundDitectApp {
             // Set up UI button handlers
             this.uiController.setButtonHandlers(
                 () => this.startRecording(),
-                () => this.stopRecording()
+                () => this.stopRecording(),
+                () => this.forceReconnect()
             );
             
             // Set up mode selection handlers
@@ -203,12 +204,24 @@ class SoundDitectApp {
     }
 
     /**
-     * Set up WebSocket callbacks
+     * Set up WebSocket callbacks with enhanced connection monitoring
      */
     setupWebSocketCallbacks() {
-        // Connection state changes
+        // Connection state changes with quality monitoring
         this.websocketClient.onConnectionStateChange = (state) => {
             this.uiController.updateConnectionStatus(state);
+        };
+        
+        // Connection quality changes
+        this.websocketClient.onConnectionQualityChange = (quality, healthScore) => {
+            this.uiController.updateConnectionStatus(
+                this.websocketClient.isConnected ? 'connected' : 'disconnected', 
+                quality, 
+                healthScore
+            );
+            
+            // Log quality changes for monitoring
+            console.log(`📊 Connection quality: ${quality} (${healthScore}%)`);
         };
         
         // Detection results from server
@@ -216,16 +229,22 @@ class SoundDitectApp {
             this.handleDetectionResult(result);
         };
         
-        // Connection established
+        // Connection established with diagnostics
         this.websocketClient.onConnect = () => {
-            console.log('Connected to server');
+            console.log('✅ Connected to server successfully');
             this.uiController.updateSystemStatus('サーバー接続完了');
+            
+            // Log connection diagnostics
+            const diagnostics = this.websocketClient.getDiagnostics();
+            if (diagnostics.totalReconnections > 0) {
+                console.log(`🔄 Reconnected after ${diagnostics.totalReconnections} attempts`);
+            }
         };
         
-        // Connection lost with enhanced recovery
-        this.websocketClient.onDisconnect = () => {
-            console.log('🔄 Disconnected from server');
-            this.uiController.updateSystemStatus('サーバー接続切断');
+        // Enhanced disconnect handling with detailed logging
+        this.websocketClient.onDisconnect = (code, reason) => {
+            console.log(`🔌 Disconnected from server: ${reason} (${code})`);
+            this.uiController.updateSystemStatus(`サーバー接続切断: ${reason}`);
             
             // Stop recording if connection is lost
             if (this.isRecording) {
@@ -247,29 +266,47 @@ class SoundDitectApp {
                 this.uiController.setRecordingState(false);
                 this.uiController.drawAudioVisualization(null, null);
                 
-                // Show user-friendly message
-                this.uiController.showError('接続が切断されたため、録音を停止しました。再接続をお待ちください。');
+                // Show user-friendly message with automatic recovery info
+                if (code !== 1000) { // Not a normal close
+                    this.uiController.showError('接続が切断されたため、録音を停止しました。自動的に再接続を試みています...');
+                }
             }
         };
         
-        // WebSocket errors with detailed handling
+        // Enhanced WebSocket error handling with diagnostics
         this.websocketClient.onError = (error) => {
             console.error('❌ WebSocket error:', error);
             
-            let userMessage = 'サーバー通信エラー';
+            // Get connection diagnostics for better error context
+            const diagnostics = this.websocketClient.getDiagnostics();
             
-            // Provide more specific error messages
+            let userMessage = 'サーバー通信エラー';
+            let shouldShowDetailed = false;
+            
+            // Provide more specific error messages based on error type and diagnostics
             if (error.includes('タイムアウト')) {
-                userMessage = '接続タイムアウトが発生しました。再接続を試みています...';
+                userMessage = '接続タイムアウトが発生しました。自動的に再接続を試みています...';
             } else if (error.includes('接続')) {
-                userMessage = 'サーバーへの接続に問題があります。ネットワークを確認してください。';
+                userMessage = 'サーバーへの接続に問題があります。';
+                shouldShowDetailed = true;
+            } else if (error.includes('最大再接続回数')) {
+                userMessage = '接続の復旧に失敗しました。';
+                shouldShowDetailed = true;
             }
             
-            this.uiController.showError(userMessage);
+            // Show detailed error for persistent connection issues
+            if (shouldShowDetailed && diagnostics.consecutiveFailures > 3) {
+                this.uiController.showConnectionError(userMessage, diagnostics);
+            } else {
+                this.uiController.showError(userMessage);
+            }
+            
+            // Update system status with error info
+            this.uiController.updateSystemStatus(`接続エラー: ${error}`);
             
             // If recording, show additional guidance
             if (this.isRecording) {
-                console.log('📝 Recording in progress during error - will attempt to continue');
+                console.log('📝 Recording in progress during error - monitoring for recovery');
             }
         };
     }
@@ -1017,6 +1054,27 @@ class SoundDitectApp {
         };
     }
 
+    /**
+     * Force reconnection with UI feedback
+     */
+    forceReconnect() {
+        console.log('🔄 User initiated force reconnection');
+        
+        // Stop recording if active
+        if (this.isRecording) {
+            this.stopRecording();
+        }
+        
+        // Update UI to show reconnecting state
+        this.uiController.updateConnectionStatus('connecting');
+        this.uiController.updateSystemStatus('手動再接続を実行中...');
+        
+        // Force reconnect through WebSocket client
+        if (this.websocketClient) {
+            this.websocketClient.forceReconnect();
+        }
+    }
+    
     /**
      * Request notification permission
      */

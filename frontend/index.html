@@ -26,7 +26,10 @@
             <section class="control-panel">
                 <div class="connection-status" id="connectionStatus">
                     <div class="status-indicator offline" id="statusIndicator"></div>
-                    <span id="statusText">接続中...</span>
+                    <div class="status-text">
+                        <span id="statusText">接続中...</span>
+                        <div class="connection-quality" id="connectionQuality"></div>
+                    </div>
                 </div>
 
                 <!-- Mode Selection -->
@@ -69,6 +72,10 @@
                     <button id="stopButton" class="btn btn-secondary" disabled>
                         <span class="btn-icon">⏹️</span>
                         録音停止
+                    </button>
+                    <button id="reconnectButton" class="btn btn-tertiary" style="display: none;">
+                        <span class="btn-icon">🔄</span>
+                        再接続
                     </button>
                 </div>
 
