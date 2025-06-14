@@ -163,7 +163,16 @@ class SoundDitectApp {
             
             // Stop recording if connection is lost
             if (this.isRecording) {
-                this.stopRecording();
+                console.log('Stopping recording due to connection loss');
+                // Stop audio processing but don't try to send WebSocket stop message
+                if (this.audioProcessor) {
+                    this.audioProcessor.stopRecording();
+                }
+                this.isRecording = false;
+                
+                // Update UI to reflect stopped state
+                this.uiController.setRecordingState(false);
+                this.uiController.drawAudioVisualization(null, null);
             }
         };
         
@@ -194,15 +203,24 @@ class SoundDitectApp {
             // Resume audio context if needed
             await this.audioProcessor.resumeAudioContext();
             
-            // Start recording
-            const success = await this.audioProcessor.startRecording();
+            // Start WebSocket recording session
+            const wsSuccess = this.websocketClient.startRecording();
+            if (!wsSuccess) {
+                this.uiController.showError('録音セッションの開始に失敗しました');
+                return false;
+            }
             
-            if (success) {
+            // Start audio recording
+            const audioSuccess = await this.audioProcessor.startRecording();
+            
+            if (audioSuccess) {
                 this.isRecording = true;
                 this.lastProcessTime = Date.now();
                 console.log('Audio recording started successfully');
                 return true;
             } else {
+                // If audio recording fails, stop WebSocket session
+                this.websocketClient.stopRecording();
                 console.error('Failed to start audio recording');
                 return false;
             }
@@ -210,6 +228,11 @@ class SoundDitectApp {
         } catch (error) {
             console.error('Error starting recording:', error);
             this.uiController.showError('録音開始エラー: ' + error.message);
+            
+            // Cleanup on error
+            if (this.websocketClient.isRecording) {
+                this.websocketClient.stopRecording();
+            }
             return false;
         }
     }
@@ -226,7 +249,14 @@ class SoundDitectApp {
             
             console.log('Stopping audio recording...');
             
+            // Stop audio recording first
             this.audioProcessor.stopRecording();
+            
+            // Stop WebSocket recording session
+            if (this.websocketClient.isRecording) {
+                this.websocketClient.stopRecording();
+            }
+            
             this.isRecording = false;
             
             // Clear visualization
@@ -237,6 +267,16 @@ class SoundDitectApp {
         } catch (error) {
             console.error('Error stopping recording:', error);
             this.uiController.showError('録音停止エラー: ' + error.message);
+            
+            // Force cleanup on error
+            try {
+                this.isRecording = false;
+                if (this.websocketClient.isRecording) {
+                    this.websocketClient.stopRecording();
+                }
+            } catch (cleanupError) {
+                console.error('Error during cleanup:', cleanupError);
+            }
         }
     }
 

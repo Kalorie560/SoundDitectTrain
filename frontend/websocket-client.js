@@ -16,6 +16,10 @@ class WebSocketClient {
         this.pingInterval = null;
         this.pingTimeout = null;
         
+        // Recording state management
+        this.isRecording = false;
+        this.recordingSessionId = null;
+        
         // Message queue for offline scenarios
         this.messageQueue = [];
         this.maxQueueSize = 100;
@@ -97,6 +101,13 @@ class WebSocketClient {
             this.isConnected = false;
             this.clientId = null;
             
+            // Reset recording state on disconnection
+            if (this.isRecording) {
+                console.log('Recording session terminated due to disconnection');
+                this.isRecording = false;
+                this.recordingSessionId = null;
+            }
+            
             // Stop ping mechanism
             this.stopPing();
             
@@ -129,6 +140,14 @@ class WebSocketClient {
             case 'connection_established':
                 this.clientId = message.client_id;
                 console.log('Connection established with client ID:', this.clientId);
+                break;
+                
+            case 'recording_started':
+                console.log('Recording session confirmed by server:', message.session_id);
+                break;
+                
+            case 'recording_stopped':
+                console.log('Recording session stopped by server:', message.session_id);
                 break;
                 
             case 'detection_result':
@@ -171,6 +190,51 @@ class WebSocketClient {
     }
 
     /**
+     * Start recording session
+     */
+    startRecording() {
+        if (!this.isConnected) {
+            console.warn('Cannot start recording: WebSocket not connected');
+            return false;
+        }
+        
+        this.isRecording = true;
+        this.recordingSessionId = Date.now().toString();
+        
+        const message = {
+            type: 'start_recording',
+            session_id: this.recordingSessionId,
+            timestamp: Date.now()
+        };
+        
+        this.sendMessage(message);
+        console.log('Recording session started:', this.recordingSessionId);
+        return true;
+    }
+
+    /**
+     * Stop recording session
+     */
+    stopRecording() {
+        if (!this.isRecording) {
+            console.warn('Recording is not active');
+            return false;
+        }
+        
+        const message = {
+            type: 'stop_recording',
+            session_id: this.recordingSessionId,
+            timestamp: Date.now()
+        };
+        
+        this.sendMessage(message);
+        this.isRecording = false;
+        this.recordingSessionId = null;
+        console.log('Recording session stopped');
+        return true;
+    }
+
+    /**
      * Send audio data to server for processing
      */
     sendAudioData(audioData, sampleRate = 44100) {
@@ -179,11 +243,17 @@ class WebSocketClient {
             return false;
         }
         
+        if (!this.isRecording) {
+            console.warn('Cannot send audio data: Recording not active');
+            return false;
+        }
+        
         try {
             const message = {
                 type: 'audio_data',
                 data: audioData, // Should be base64 encoded
                 sample_rate: sampleRate,
+                session_id: this.recordingSessionId,
                 timestamp: Date.now()
             };
             
@@ -274,11 +344,11 @@ class WebSocketClient {
         
         this.sendMessage(pingMessage);
         
-        // Set timeout for pong response
+        // Set timeout for pong response (extended timeout for stability)
         this.pingTimeout = setTimeout(() => {
             console.warn('Ping timeout - connection may be lost');
             this.handleConnectionError('接続タイムアウト');
-        }, 5000); // 5 second timeout
+        }, 15000); // 15 second timeout (extended for better stability)
     }
 
     /**
@@ -343,6 +413,11 @@ class WebSocketClient {
      * Disconnect from WebSocket
      */
     disconnect() {
+        // Stop recording session if active
+        if (this.isRecording) {
+            this.stopRecording();
+        }
+        
         if (this.ws) {
             this.stopPing();
             this.ws.close(1000, 'Client disconnect');
@@ -351,6 +426,8 @@ class WebSocketClient {
         
         this.isConnected = false;
         this.clientId = null;
+        this.isRecording = false;
+        this.recordingSessionId = null;
     }
 
     /**

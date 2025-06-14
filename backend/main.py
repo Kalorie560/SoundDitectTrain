@@ -117,15 +117,18 @@ async def websocket_audio_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time audio processing.
     
-    Expected message format:
-    {
-        "type": "audio_data",
-        "data": "base64_encoded_audio_data",
-        "sample_rate": 44100
-    }
+    Expected message formats:
+    - Start recording: {"type": "start_recording", "session_id": "..."}
+    - Audio data: {"type": "audio_data", "data": "...", "session_id": "..."}
+    - Stop recording: {"type": "stop_recording", "session_id": "..."}
+    - Ping: {"type": "ping"}
     """
     await websocket.accept()
     client_id = await websocket_manager.connect(websocket)
+    
+    # Track recording session state
+    recording_session = None
+    is_processing = False
     
     try:
         await websocket.send_json({
@@ -135,40 +138,84 @@ async def websocket_audio_endpoint(websocket: WebSocket):
         })
         
         while True:
-            # Receive audio data from client
+            # Receive message from client
             message = await websocket.receive_text()
             data = json.loads(message)
+            message_type = data.get("type")
             
-            if data.get("type") == "audio_data":
-                try:
-                    # Process audio data
-                    audio_result = await process_audio_message(data)
+            if message_type == "start_recording":
+                # Start recording session
+                recording_session = data.get("session_id")
+                is_processing = True
+                logger.info(f"Client {client_id} started recording session: {recording_session}")
+                
+                await websocket.send_json({
+                    "type": "recording_started",
+                    "session_id": recording_session,
+                    "message": "録音セッションが開始されました"
+                })
+                
+            elif message_type == "stop_recording":
+                # Stop recording session
+                session_id = data.get("session_id")
+                if session_id == recording_session:
+                    is_processing = False
+                    logger.info(f"Client {client_id} stopped recording session: {recording_session}")
                     
-                    # Send result back to client
                     await websocket.send_json({
-                        "type": "detection_result",
-                        "timestamp": audio_result["timestamp"],
-                        "prediction": audio_result["prediction"],
-                        "confidence": audio_result["confidence"],
-                        "status": "OK" if audio_result["prediction"] == 0 else "NG",
-                        "message": "正常" if audio_result["prediction"] == 0 else "異常検知!"
+                        "type": "recording_stopped",
+                        "session_id": recording_session,
+                        "message": "録音セッションが停止されました"
                     })
                     
-                except Exception as e:
-                    logger.error(f"Audio processing error: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"音声処理エラー: {str(e)}"
-                    })
+                    recording_session = None
+                else:
+                    logger.warning(f"Session ID mismatch: {session_id} vs {recording_session}")
+                
+            elif message_type == "audio_data":
+                # Only process audio if we have an active recording session
+                session_id = data.get("session_id")
+                if is_processing and session_id == recording_session:
+                    try:
+                        # Process audio data
+                        audio_result = await process_audio_message(data)
+                        
+                        # Send result back to client
+                        await websocket.send_json({
+                            "type": "detection_result",
+                            "session_id": recording_session,
+                            "timestamp": audio_result["timestamp"],
+                            "prediction": audio_result["prediction"],
+                            "confidence": audio_result["confidence"],
+                            "status": "OK" if audio_result["prediction"] == 0 else "NG",
+                            "message": "正常" if audio_result["prediction"] == 0 else "異常検知!"
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"Audio processing error: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "session_id": recording_session,
+                            "message": f"音声処理エラー: {str(e)}"
+                        })
+                else:
+                    # Audio data received without active session - ignore
+                    logger.debug(f"Ignoring audio data - no active session or session mismatch")
             
-            elif data.get("type") == "ping":
+            elif message_type == "ping":
                 await websocket.send_json({"type": "pong"})
+            
+            else:
+                logger.warning(f"Unknown message type: {message_type}")
                 
     except WebSocketDisconnect:
         logger.info(f"Client {client_id} disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
+        # Cleanup
+        if recording_session:
+            logger.info(f"Cleaning up recording session {recording_session} for client {client_id}")
         await websocket_manager.disconnect(client_id)
 
 async def process_audio_message(data: Dict) -> Dict:
