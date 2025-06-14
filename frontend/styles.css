@@ -820,6 +820,17 @@ input[type="range"]::-webkit-slider-thumb {
     100% { transform: rotate(360deg); }
 }
 
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(300px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
 /* Loading overlay styles */
 #loadingOverlay {
     position: fixed;
