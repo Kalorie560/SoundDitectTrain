@@ -11,7 +11,7 @@ class WebSocketClient {
         this.isConnected = false;
         this.clientId = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 10; // Increased retry attempts
+        this.maxReconnectAttempts = 15; // Further increased retry attempts
         this.reconnectDelay = 1000; // 1 second
         this.pingInterval = null;
         this.pingTimeout = null;
@@ -235,16 +235,21 @@ class WebSocketClient {
     }
 
     /**
-     * Send audio data to server for processing
+     * Send audio data to server for processing with enhanced validation and retries
      */
     sendAudioData(audioData, sampleRate = 44100) {
         if (!this.isConnected) {
-            console.warn('Cannot send audio data: WebSocket not connected');
+            console.warn('⚠️ Cannot send audio data: WebSocket not connected');
             return false;
         }
         
         if (!this.isRecording) {
-            console.warn('Cannot send audio data: Recording not active');
+            console.warn('⚠️ Cannot send audio data: Recording not active');
+            return false;
+        }
+        
+        if (!audioData || audioData.length === 0) {
+            console.warn('⚠️ Cannot send audio data: Data is empty');
             return false;
         }
         
@@ -254,14 +259,21 @@ class WebSocketClient {
                 data: audioData, // Should be base64 encoded
                 sample_rate: sampleRate,
                 session_id: this.recordingSessionId,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                data_size: audioData.length
             };
             
-            this.sendMessage(message);
-            return true;
+            const success = this.sendMessage(message);
+            if (success) {
+                console.log(`📤 Audio data sent: ${audioData.length} chars, session: ${this.recordingSessionId}`);
+            } else {
+                console.warn('❌ Failed to send audio data message');
+            }
+            
+            return success;
             
         } catch (error) {
-            console.error('Error sending audio data:', error);
+            console.error('❌ Error sending audio data:', error);
             return false;
         }
     }
@@ -315,7 +327,7 @@ class WebSocketClient {
             if (this.isConnected) {
                 this.sendPing();
             }
-        }, 30000); // Ping every 30 seconds
+        }, 25000); // Ping every 25 seconds
     }
 
     /**
@@ -348,7 +360,7 @@ class WebSocketClient {
         this.pingTimeout = setTimeout(() => {
             console.warn('Ping timeout - connection may be lost');
             this.handleConnectionError('接続タイムアウト');
-        }, 30000); // 30 second timeout (extended for maximum stability)
+        }, 45000); // 45 second timeout (further extended for maximum stability)
     }
 
     /**
@@ -362,19 +374,26 @@ class WebSocketClient {
     }
 
     /**
-     * Handle connection errors
+     * Handle connection errors with enhanced recovery mechanisms
      */
     handleConnectionError(errorMessage) {
-        console.error('Connection error:', errorMessage);
+        console.error('❌ Connection error:', errorMessage);
         
         // Log connection statistics for debugging
         const stats = this.getStatistics();
-        console.log('Connection statistics at error:', stats);
+        console.log('📊 Connection statistics at error:', stats);
         
         // Clear any pending ping timeout
         if (this.pingTimeout) {
             clearTimeout(this.pingTimeout);
             this.pingTimeout = null;
+        }
+        
+        // Reset recording state on connection error
+        if (this.isRecording) {
+            console.log('🚨 Resetting recording state due to connection error');
+            this.isRecording = false;
+            this.recordingSessionId = null;
         }
         
         if (this.onError) {
@@ -385,21 +404,35 @@ class WebSocketClient {
             this.onConnectionStateChange('error');
         }
         
-        // Auto-reconnect on timeout errors if we haven't exceeded max attempts
-        if (errorMessage.includes('タイムアウト') && this.reconnectAttempts < this.maxReconnectAttempts) {
-            console.log('Attempting auto-reconnect due to timeout...');
+        // Enhanced auto-reconnect logic
+        const shouldReconnect = (
+            this.reconnectAttempts < this.maxReconnectAttempts && (
+                errorMessage.includes('タイムアウト') ||
+                errorMessage.includes('WebSocket') ||
+                errorMessage.includes('接続')
+            )
+        );
+        
+        if (shouldReconnect) {
+            console.log('🔄 Attempting auto-reconnect due to error...');
             this.scheduleReconnect();
+        } else {
+            console.warn('🚫 Max reconnection attempts reached or unrecoverable error');
         }
     }
 
     /**
-     * Schedule reconnection attempt
+     * Schedule reconnection attempt with improved backoff strategy
      */
     scheduleReconnect() {
         this.reconnectAttempts++;
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1); // Exponential backoff
         
-        console.log(`Scheduling reconnection attempt ${this.reconnectAttempts} in ${delay}ms`);
+        // Smart exponential backoff with maximum delay cap
+        const baseDelay = this.reconnectDelay;
+        const exponentialDelay = baseDelay * Math.pow(1.5, this.reconnectAttempts - 1);
+        const delay = Math.min(exponentialDelay, 30000); // Cap at 30 seconds
+        
+        console.log(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
         
         if (this.onConnectionStateChange) {
             this.onConnectionStateChange('reconnecting');
@@ -407,8 +440,13 @@ class WebSocketClient {
         
         setTimeout(() => {
             if (!this.isConnected && this.reconnectAttempts <= this.maxReconnectAttempts) {
-                console.log(`Reconnection attempt ${this.reconnectAttempts}`);
+                console.log(`🔌 Executing reconnection attempt ${this.reconnectAttempts}`);
                 this.connect();
+            } else if (this.reconnectAttempts > this.maxReconnectAttempts) {
+                console.error('🚫 Maximum reconnection attempts exceeded');
+                if (this.onConnectionStateChange) {
+                    this.onConnectionStateChange('failed');
+                }
             }
         }, delay);
     }

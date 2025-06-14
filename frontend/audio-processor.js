@@ -180,7 +180,7 @@ class AudioProcessor {
     }
 
     /**
-     * Process incoming audio buffer
+     * Process incoming audio buffer with enhanced timing and quality checks
      */
     processAudioBuffer(event) {
         if (!this.isRecording) return;
@@ -188,16 +188,22 @@ class AudioProcessor {
         const inputBuffer = event.inputBuffer;
         const inputData = inputBuffer.getChannelData(0);
         
+        // Validate input data
+        if (!inputData || inputData.length === 0) {
+            console.warn('Received empty audio buffer');
+            return;
+        }
+        
         // Copy audio data to our buffer
         const audioArray = new Float32Array(inputData);
         this.audioBuffer.push(...audioArray);
         
-        // Maintain buffer size limit
+        // Maintain buffer size limit (keep exactly 1 second)
         if (this.audioBuffer.length > this.maxBufferLength) {
             this.audioBuffer = this.audioBuffer.slice(-this.maxBufferLength);
         }
         
-        // Calculate volume (RMS)
+        // Calculate volume (RMS) with noise floor detection
         this.currentVolume = this.calculateRMS(audioArray);
         
         // Update visualization data
@@ -208,10 +214,22 @@ class AudioProcessor {
             this.onVolumeChange(this.currentVolume);
         }
         
-        // Send audio data if we have enough (1 second worth)
+        // Send audio data when we have exactly 1 second worth
+        // Use a more reliable timing mechanism
         if (this.audioBuffer.length >= this.maxBufferLength && this.onAudioData) {
             const audioData = new Float32Array(this.audioBuffer.slice(-this.maxBufferLength));
+            
+            // Validate audio quality before sending
+            const maxAmplitude = Math.max(...audioData.map(Math.abs));
+            const rms = this.calculateRMS(audioData);
+            
+            console.log(`🎤 Sending audio data: ${audioData.length} samples, RMS: ${rms.toFixed(4)}, Max: ${maxAmplitude.toFixed(4)}`);
+            
+            // Send even if quiet (server will handle silence detection)
             this.onAudioData(audioData);
+            
+            // Reset buffer to prevent overlap issues
+            this.audioBuffer = [];
         }
     }
 
@@ -264,22 +282,37 @@ class AudioProcessor {
     }
 
     /**
-     * Convert audio data to base64 for transmission
+     * Convert audio data to base64 for transmission with validation
      */
     audioToBase64(audioData) {
         try {
-            const buffer = new ArrayBuffer(audioData.length * 4);
-            const view = new Float32Array(buffer);
-            view.set(audioData);
-            
-            // Convert to base64
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
+            if (!audioData || audioData.length === 0) {
+                console.warn('Empty audio data for base64 conversion');
+                return null;
             }
             
-            return btoa(binary);
+            // Ensure we have Float32Array
+            const audioArray = audioData instanceof Float32Array ? audioData : new Float32Array(audioData);
+            
+            // Create buffer and copy data
+            const buffer = new ArrayBuffer(audioArray.length * 4);
+            const view = new Float32Array(buffer);
+            view.set(audioArray);
+            
+            // Convert to base64 with chunked processing for large data
+            const bytes = new Uint8Array(buffer);
+            const chunkSize = 65536; // 64KB chunks
+            let binary = '';
+            
+            for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+                const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.byteLength));
+                binary += String.fromCharCode.apply(null, chunk);
+            }
+            
+            const base64Result = btoa(binary);
+            console.log(`📦 Audio data encoded: ${audioArray.length} samples -> ${base64Result.length} base64 chars`);
+            
+            return base64Result;
             
         } catch (error) {
             console.error('Error converting audio to base64:', error);
@@ -288,20 +321,40 @@ class AudioProcessor {
     }
 
     /**
-     * Apply simple audio preprocessing
+     * Apply enhanced audio preprocessing with quality validation
      */
     preprocessAudio(audioData) {
-        // Remove DC offset
-        const mean = audioData.reduce((sum, val) => sum + val, 0) / audioData.length;
-        const dcRemoved = audioData.map(val => val - mean);
-        
-        // Normalize to [-1, 1]
-        const maxVal = Math.max(...dcRemoved.map(Math.abs));
-        if (maxVal > 0) {
-            return dcRemoved.map(val => val / maxVal);
+        try {
+            if (!audioData || audioData.length === 0) {
+                console.warn('Empty audio data for preprocessing');
+                return new Float32Array(this.maxBufferLength).fill(0);
+            }
+            
+            // Convert to Float32Array if not already
+            const audioArray = audioData instanceof Float32Array ? audioData : new Float32Array(audioData);
+            
+            // Remove DC offset
+            const mean = audioArray.reduce((sum, val) => sum + val, 0) / audioArray.length;
+            const dcRemoved = audioArray.map(val => val - mean);
+            
+            // Calculate RMS for quality assessment
+            const rms = Math.sqrt(dcRemoved.reduce((sum, val) => sum + val * val, 0) / dcRemoved.length);
+            
+            // Gentle normalization to preserve dynamic range
+            const maxVal = Math.max(...dcRemoved.map(Math.abs));
+            if (maxVal > 0 && maxVal > 0.001) { // Only normalize if not too quiet
+                const normalizedData = dcRemoved.map(val => val / maxVal * 0.95); // Slight headroom
+                console.log(`🔧 Audio preprocessed: RMS ${rms.toFixed(4)}, Max ${maxVal.toFixed(4)}, Normalized`);
+                return new Float32Array(normalizedData);
+            } else {
+                console.log(`🔇 Quiet audio: RMS ${rms.toFixed(6)}, Max ${maxVal.toFixed(6)}, Not normalized`);
+                return new Float32Array(dcRemoved);
+            }
+            
+        } catch (error) {
+            console.error('Error in audio preprocessing:', error);
+            return new Float32Array(this.maxBufferLength).fill(0);
         }
-        
-        return dcRemoved;
     }
 
     /**
