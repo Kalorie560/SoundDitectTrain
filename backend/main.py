@@ -59,22 +59,68 @@ websocket_manager = WebSocketManager()
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the application on startup."""
-    logger.info("Starting SoundDitect backend...")
+    """Initialize the application on startup with comprehensive model loading."""
+    logger.info("🚀 Starting SoundDitect backend...")
     
-    # Load the trained model
+    # Create necessary directories
+    import os
+    os.makedirs("models", exist_ok=True)
+    os.makedirs("data", exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
+    
+    # Load the trained model (with fallback to baseline)
     try:
-        await model_manager.load_model()
-        logger.info("Model loaded successfully")
+        model_loaded = await model_manager.load_model()
+        if model_loaded:
+            logger.info("✅ Model initialization completed successfully")
+        else:
+            logger.warning("⚠️ Model loading failed, but continuing with fallback")
     except Exception as e:
-        logger.warning(f"Could not load model: {e}")
-        logger.info("Model will be trained on first use")
+        logger.error(f"❌ Model initialization error: {e}")
+        logger.info("🔄 System will attempt model creation on first prediction")
+    
+    logger.info("🎯 SoundDitect backend startup complete")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on application shutdown."""
-    logger.info("Shutting down SoundDitect backend...")
-    await websocket_manager.disconnect_all()
+    """Enhanced cleanup on application shutdown to prevent resource leaks."""
+    logger.info("🔄 Shutting down SoundDitect backend...")
+    
+    try:
+        # Disconnect all WebSocket connections
+        await websocket_manager.disconnect_all()
+        logger.info("✅ WebSocket connections closed")
+        
+        # Clean up model resources
+        if model_manager.model is not None:
+            del model_manager.model
+            logger.info("✅ Model resources cleaned up")
+        
+        # Force garbage collection to help with resource cleanup
+        import gc
+        gc.collect()
+        
+        # Clean up ClearML task if it exists
+        if hasattr(model_manager, 'task') and model_manager.task is not None:
+            try:
+                model_manager.task.close()
+                logger.info("✅ ClearML task closed")
+            except Exception as clearml_error:
+                logger.debug(f"ClearML cleanup note: {clearml_error}")
+        
+        logger.info("✅ SoundDitect backend shutdown complete")
+        
+    except Exception as e:
+        logger.error(f"⚠️ Error during shutdown: {e}")
+        
+    # Additional cleanup for macOS semaphore issues
+    import platform
+    if platform.system() == 'Darwin':
+        try:
+            import multiprocessing
+            multiprocessing.current_process().terminate()
+        except:
+            pass
 
 @app.get("/api/health")
 async def health_check():
@@ -177,16 +223,25 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                 session_id = data.get("session_id")
                 if is_processing and session_id == recording_session:
                     try:
-                        # Process audio data
-                        logger.debug(f"Processing audio data for session: {recording_session}")
+                        # Process audio data with enhanced logging
+                        start_time = asyncio.get_event_loop().time()
+                        logger.info(f"🎧 Processing audio data for session: {recording_session}")
+                        
                         audio_result = await process_audio_message(data)
                         
-                        # Log the prediction result for debugging
-                        logger.info(f"Prediction result - Session: {recording_session}, "
-                                  f"Prediction: {audio_result['prediction']}, "
-                                  f"Confidence: {audio_result['confidence']:.3f}")
+                        processing_time = (asyncio.get_event_loop().time() - start_time) * 1000
                         
-                        # Prepare response
+                        # Enhanced logging for debugging
+                        logger.info(f"🎯 Prediction result - Session: {recording_session}, "
+                                  f"Prediction: {audio_result['prediction']}, "
+                                  f"Confidence: {audio_result['confidence']:.3f}, "
+                                  f"Processing time: {processing_time:.1f}ms")
+                        
+                        # Check for processing errors
+                        if 'error' in audio_result:
+                            logger.warning(f"⚠️ Audio processing warning: {audio_result['error']}")
+                        
+                        # Prepare enhanced response
                         result_message = {
                             "type": "detection_result",
                             "session_id": recording_session,
@@ -194,25 +249,36 @@ async def websocket_audio_endpoint(websocket: WebSocket):
                             "prediction": audio_result["prediction"],
                             "confidence": audio_result["confidence"],
                             "status": "OK" if audio_result["prediction"] == 0 else "NG",
-                            "message": "正常" if audio_result["prediction"] == 0 else "異常検知!"
+                            "message": "正常" if audio_result["prediction"] == 0 else "異常検知!",
+                            "processing_time_ms": processing_time,
+                            "audio_length": audio_result.get("audio_length", 0)
                         }
+                        
+                        # Add error information if present
+                        if 'error' in audio_result:
+                            result_message["warning"] = audio_result['error']
                         
                         # Send result back to client
                         await websocket.send_json(result_message)
-                        logger.debug(f"Detection result sent to client: {result_message}")
+                        logger.info(f"✅ Detection result sent successfully to client")
                         
                     except Exception as e:
-                        logger.error(f"Audio processing error: {e}")
+                        logger.error(f"❌ Audio processing error: {e}", exc_info=True)
                         error_message = {
                             "type": "error",
                             "session_id": recording_session,
-                            "message": f"音声処理エラー: {str(e)}"
+                            "message": f"音声処理エラー: {str(e)}",
+                            "timestamp": asyncio.get_event_loop().time()
                         }
-                        await websocket.send_json(error_message)
-                        logger.debug(f"Error message sent to client: {error_message}")
+                        try:
+                            await websocket.send_json(error_message)
+                            logger.info("ℹ️ Error message sent to client")
+                        except Exception as send_error:
+                            logger.error(f"❌ Failed to send error message: {send_error}")
                 else:
-                    # Audio data received without active session - ignore
-                    logger.debug(f"Ignoring audio data - no active session or session mismatch")
+                    # Audio data received without active session - log for debugging
+                    logger.debug(f"⏸️ Ignoring audio data - Session active: {is_processing}, "
+                               f"Session ID match: {session_id == recording_session}")
             
             elif message_type == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -232,7 +298,7 @@ async def websocket_audio_endpoint(websocket: WebSocket):
 
 async def process_audio_message(data: Dict) -> Dict:
     """
-    Process incoming audio data and return prediction result.
+    Process incoming audio data and return prediction result with enhanced error handling.
     
     Args:
         data: Dictionary containing audio data and metadata
@@ -241,17 +307,29 @@ async def process_audio_message(data: Dict) -> Dict:
         Dictionary with prediction results
     """
     try:
-        # Decode base64 audio data
-        audio_data = base64.b64decode(data["data"])
+        # Validate input data structure
+        if not isinstance(data, dict) or "data" not in data:
+            raise ValueError("Invalid audio data format: missing 'data' field")
+        
+        # Decode base64 audio data with validation
+        try:
+            audio_data = base64.b64decode(data["data"])
+        except Exception as decode_error:
+            raise ValueError(f"Failed to decode base64 audio data: {decode_error}")
+        
         sample_rate = data.get("sample_rate", config['audio']['sample_rate'])
         
-        # Convert to numpy array
-        audio_array = np.frombuffer(audio_data, dtype=np.float32)
-        logger.debug(f"Received audio data: {len(audio_array)} samples at {sample_rate}Hz")
+        # Convert to numpy array with proper validation
+        try:
+            audio_array = np.frombuffer(audio_data, dtype=np.float32)
+        except ValueError as convert_error:
+            raise ValueError(f"Failed to convert audio data to numpy array: {convert_error}")
         
-        # Validate audio data
+        logger.info(f"📊 Audio data received: {len(audio_array)} samples at {sample_rate}Hz")
+        
+        # Validate audio data size and content
         if len(audio_array) == 0:
-            logger.warning("Received empty audio data")
+            logger.warning("⚠️ Received empty audio data")
             return {
                 "timestamp": asyncio.get_event_loop().time(),
                 "prediction": 0,
@@ -261,36 +339,70 @@ async def process_audio_message(data: Dict) -> Dict:
                 "error": "Empty audio data"
             }
         
+        # Check for silence or very low amplitude
+        max_amplitude = np.max(np.abs(audio_array))
+        if max_amplitude < 1e-6:
+            logger.info(f"🔇 Very quiet audio detected (max amplitude: {max_amplitude:.2e})")
+        
         # Process audio through the pipeline
-        processed_audio = audio_processor.preprocess(audio_array, sample_rate)
-        logger.debug(f"Processed audio: {len(processed_audio)} samples")
+        try:
+            processed_audio = audio_processor.preprocess(audio_array, sample_rate)
+            logger.info(f"⚙️ Audio preprocessing complete: {len(processed_audio)} samples")
+        except Exception as preprocess_error:
+            logger.error(f"❌ Audio preprocessing failed: {preprocess_error}")
+            raise ValueError(f"Audio preprocessing failed: {preprocess_error}")
         
         # Ensure model is loaded before prediction
         if not model_manager.is_model_loaded():
-            logger.warning("Model not loaded, attempting to load...")
-            await model_manager.load_model()
+            logger.warning("⚠️ Model not loaded, attempting to load...")
+            load_success = await model_manager.load_model()
+            if not load_success:
+                raise RuntimeError("Failed to load model for prediction")
+            logger.info("✅ Model loaded successfully")
         
-        # Get prediction from model
-        prediction, confidence = await model_manager.predict(processed_audio)
-        logger.debug(f"Model prediction: {prediction}, confidence: {confidence}")
+        # Get prediction from model with timing
+        try:
+            prediction_start = asyncio.get_event_loop().time()
+            prediction, confidence = await model_manager.predict(processed_audio)
+            prediction_time = (asyncio.get_event_loop().time() - prediction_start) * 1000
+            
+            logger.info(f"🧠 Model prediction complete: {prediction} (confidence: {confidence:.3f}, time: {prediction_time:.1f}ms)")
+        except Exception as prediction_error:
+            logger.error(f"❌ Model prediction failed: {prediction_error}")
+            raise RuntimeError(f"Model prediction failed: {prediction_error}")
         
-        return {
+        # Validate prediction results
+        if not isinstance(prediction, (int, float)) or not isinstance(confidence, (int, float)):
+            logger.warning(f"⚠️ Invalid prediction format: {type(prediction)}, {type(confidence)}")
+            prediction, confidence = int(prediction), float(confidence)
+        
+        # Create comprehensive result
+        result = {
             "timestamp": asyncio.get_event_loop().time(),
             "prediction": int(prediction),
             "confidence": float(confidence),
             "sample_rate": sample_rate,
-            "audio_length": len(audio_array)
+            "audio_length": len(audio_array),
+            "max_amplitude": float(max_amplitude),
+            "processing_info": {
+                "preprocessed_length": len(processed_audio),
+                "prediction_time_ms": prediction_time if 'prediction_time' in locals() else 0
+            }
         }
         
+        logger.info(f"✅ Audio processing completed successfully")
+        return result
+        
     except Exception as e:
-        logger.error(f"Error processing audio: {e}", exc_info=True)
-        # Return a default result instead of raising to prevent WebSocket disconnect
+        logger.error(f"❌ Critical error processing audio: {e}", exc_info=True)
+        # Return a safe default result to prevent WebSocket disconnect
         return {
             "timestamp": asyncio.get_event_loop().time(),
             "prediction": 0,
             "confidence": 0.0,
             "sample_rate": data.get("sample_rate", config['audio']['sample_rate']),
             "audio_length": 0,
+            "max_amplitude": 0.0,
             "error": str(e)
         }
 

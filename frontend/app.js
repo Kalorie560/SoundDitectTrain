@@ -156,30 +156,55 @@ class SoundDitectApp {
             this.uiController.updateSystemStatus('サーバー接続完了');
         };
         
-        // Connection lost
+        // Connection lost with enhanced recovery
         this.websocketClient.onDisconnect = () => {
-            console.log('Disconnected from server');
+            console.log('🔄 Disconnected from server');
             this.uiController.updateSystemStatus('サーバー接続切断');
             
             // Stop recording if connection is lost
             if (this.isRecording) {
-                console.log('Stopping recording due to connection loss');
-                // Stop audio processing but don't try to send WebSocket stop message
-                if (this.audioProcessor) {
-                    this.audioProcessor.stopRecording();
+                console.log('⏹️ Stopping recording due to connection loss');
+                
+                try {
+                    // Stop audio processing but don't try to send WebSocket stop message
+                    if (this.audioProcessor) {
+                        this.audioProcessor.stopRecording();
+                        console.log('✅ Audio processor stopped cleanly');
+                    }
+                } catch (audioError) {
+                    console.error('❌ Error stopping audio processor:', audioError);
                 }
+                
                 this.isRecording = false;
                 
                 // Update UI to reflect stopped state
                 this.uiController.setRecordingState(false);
                 this.uiController.drawAudioVisualization(null, null);
+                
+                // Show user-friendly message
+                this.uiController.showError('接続が切断されたため、録音を停止しました。再接続をお待ちください。');
             }
         };
         
-        // WebSocket errors
+        // WebSocket errors with detailed handling
         this.websocketClient.onError = (error) => {
-            console.error('WebSocket error:', error);
-            this.uiController.showError('サーバー通信エラー: ' + error);
+            console.error('❌ WebSocket error:', error);
+            
+            let userMessage = 'サーバー通信エラー';
+            
+            // Provide more specific error messages
+            if (error.includes('タイムアウト')) {
+                userMessage = '接続タイムアウトが発生しました。再接続を試みています...';
+            } else if (error.includes('接続')) {
+                userMessage = 'サーバーへの接続に問題があります。ネットワークを確認してください。';
+            }
+            
+            this.uiController.showError(userMessage);
+            
+            // If recording, show additional guidance
+            if (this.isRecording) {
+                console.log('📝 Recording in progress during error - will attempt to continue');
+            }
         };
     }
 
@@ -281,28 +306,53 @@ class SoundDitectApp {
     }
 
     /**
-     * Process audio data and send to server
+     * Process audio data and send to server with enhanced validation and error handling
      */
     async processAudioData(audioData) {
         try {
             const startTime = Date.now();
             
+            // Validate audio data
+            if (!audioData || audioData.length === 0) {
+                console.warn('⚠️ Received empty audio data, skipping processing');
+                return;
+            }
+            
+            // Log audio characteristics for debugging
+            const rms = Math.sqrt(audioData.reduce((sum, val) => sum + val * val, 0) / audioData.length);
+            const maxAmplitude = Math.max(...audioData.map(Math.abs));
+            
+            console.log(`🎧 Processing audio: ${audioData.length} samples, RMS: ${rms.toFixed(4)}, Max: ${maxAmplitude.toFixed(4)}`);
+            
             // Preprocess audio data
             const preprocessedAudio = this.audioProcessor.preprocessAudio(audioData);
+            
+            if (!preprocessedAudio || preprocessedAudio.length === 0) {
+                console.warn('⚠️ Audio preprocessing failed, skipping');
+                return;
+            }
             
             // Convert to base64 for transmission
             const audioBase64 = this.audioProcessor.audioToBase64(preprocessedAudio);
             
             if (audioBase64) {
+                console.log(`📦 Sending audio data to server: ${audioBase64.length} base64 chars`);
+                
                 // Send to server via WebSocket
                 const success = this.websocketClient.sendAudioData(
                     audioBase64,
                     this.audioProcessor.sampleRate
                 );
                 
-                if (!success) {
-                    console.warn('Failed to send audio data to server');
+                if (success) {
+                    console.log('✅ Audio data sent successfully');
+                } else {
+                    console.warn('❌ Failed to send audio data to server');
+                    this.uiController.showError('サーバーへの音声データ送信に失敗しました');
                 }
+            } else {
+                console.error('❌ Base64 encoding failed');
+                this.uiController.showError('音声データのエンコードに失敗しました');
             }
             
             // Track processing performance
@@ -310,24 +360,42 @@ class SoundDitectApp {
             this.trackProcessingPerformance(processingTime);
             
         } catch (error) {
-            console.error('Error processing audio data:', error);
+            console.error('❌ Error processing audio data:', error);
+            this.uiController.showError(`音声処理エラー: ${error.message}`);
         }
     }
 
     /**
-     * Handle detection result from server
+     * Handle detection result from server with enhanced logging and validation
      */
     handleDetectionResult(result) {
         try {
-            console.log('Detection result received:', result);
+            console.log('📨 Detection result received:', result);
+            
+            // Validate result structure
+            if (!result || typeof result !== 'object') {
+                console.error('❌ Invalid detection result format');
+                return;
+            }
+            
+            // Extract and validate core result data
+            const prediction = result.prediction !== undefined ? result.prediction : -1;
+            const confidence = result.confidence !== undefined ? result.confidence : 0;
+            const status = result.status || 'UNKNOWN';
+            const processingTime = result.processing_time_ms || 0;
             
             // Log detailed information for debugging
             const timestamp = new Date(result.timestamp * 1000).toLocaleTimeString();
-            console.log(`[${timestamp}] Prediction: ${result.prediction}, Confidence: ${result.confidence.toFixed(3)}, Status: ${result.status}`);
+            console.log(`🕰️ [${timestamp}] Prediction: ${prediction}, Confidence: ${confidence.toFixed(3)}, Status: ${status}, Processing: ${processingTime.toFixed(1)}ms`);
             
-            // Check for errors in the result
+            // Check for warnings or errors in the result
             if (result.error) {
-                console.warn('Detection result contains error:', result.error);
+                console.warn('⚠️ Detection result contains error:', result.error);
+                this.uiController.showError(`検知エラー: ${result.error}`);
+            }
+            
+            if (result.warning) {
+                console.warn('⚠️ Detection result contains warning:', result.warning);
             }
             
             // Update UI with result
@@ -335,23 +403,36 @@ class SoundDitectApp {
             
             // Apply sensitivity threshold
             const sensitivity = this.uiController.getSensitivity();
-            const adjustedConfidence = result.confidence * sensitivity;
+            const adjustedConfidence = confidence * sensitivity;
             
-            // Log significant detections
-            if (result.prediction === 1 && result.confidence > 0.5) { // Anomaly detected with reasonable confidence
-                console.warn(`🚨 Anomaly detected! Confidence: ${result.confidence.toFixed(3)}, Adjusted: ${adjustedConfidence.toFixed(3)}`);
-                
-                // Could add notification sound or vibration here
-                this.notifyAnomalyDetection(result);
-            } else if (result.prediction === 0) {
-                console.log(`✅ Normal sound detected. Confidence: ${result.confidence.toFixed(3)}`);
+            // Enhanced detection result analysis
+            if (prediction === 1) {
+                if (confidence > 0.7) {
+                    console.warn(`🚨 HIGH CONFIDENCE ANOMALY! Confidence: ${confidence.toFixed(3)}, Adjusted: ${adjustedConfidence.toFixed(3)}`);
+                    this.notifyAnomalyDetection(result);
+                } else if (confidence > 0.5) {
+                    console.warn(`🟡 Medium confidence anomaly: ${confidence.toFixed(3)}, Adjusted: ${adjustedConfidence.toFixed(3)}`);
+                    this.notifyAnomalyDetection(result);
+                } else {
+                    console.log(`🟨 Low confidence anomaly: ${confidence.toFixed(3)}, may be false positive`);
+                }
+            } else if (prediction === 0) {
+                console.log(`✅ Normal sound detected. Confidence: ${confidence.toFixed(3)}`);
+            } else {
+                console.warn(`❓ Unknown prediction value: ${prediction}`);
             }
             
             // Track result processing performance
             this.trackDetectionPerformance(result);
             
+            // Log audio processing metrics if available
+            if (result.audio_length) {
+                console.log(`📊 Audio metrics: ${result.audio_length} samples, Max amplitude: ${result.max_amplitude?.toFixed(4) || 'N/A'}`);
+            }
+            
         } catch (error) {
-            console.error('Error handling detection result:', error);
+            console.error('❌ Error handling detection result:', error);
+            this.uiController.showError(`結果処理エラー: ${error.message}`);
         }
     }
 
@@ -409,7 +490,7 @@ class SoundDitectApp {
     }
 
     /**
-     * Track detection result performance and statistics
+     * Track detection result performance and statistics with enhanced metrics
      */
     trackDetectionPerformance(result) {
         if (!this.detectionStats) {
@@ -418,16 +499,37 @@ class SoundDitectApp {
                 anomalyCount: 0,
                 normalCount: 0,
                 averageConfidence: 0,
-                lastDetectionTime: 0
+                lastDetectionTime: 0,
+                processingTimes: [],
+                highConfidenceAnomalies: 0,
+                errorCount: 0,
+                startTime: Date.now()
             };
         }
         
         this.detectionStats.totalDetections++;
         
+        // Track prediction types
         if (result.prediction === 1) {
             this.detectionStats.anomalyCount++;
-        } else {
+            if (result.confidence > 0.7) {
+                this.detectionStats.highConfidenceAnomalies++;
+            }
+        } else if (result.prediction === 0) {
             this.detectionStats.normalCount++;
+        }
+        
+        // Track errors
+        if (result.error || result.warning) {
+            this.detectionStats.errorCount++;
+        }
+        
+        // Track processing times
+        if (result.processing_time_ms) {
+            this.detectionStats.processingTimes.push(result.processing_time_ms);
+            if (this.detectionStats.processingTimes.length > 100) {
+                this.detectionStats.processingTimes.shift(); // Keep only last 100
+            }
         }
         
         // Update average confidence (running average)
@@ -437,14 +539,25 @@ class SoundDitectApp {
         
         this.detectionStats.lastDetectionTime = Date.now();
         
-        // Log statistics every 50 detections
-        if (this.detectionStats.totalDetections % 50 === 0) {
-            console.log('Detection Statistics:', {
+        // Log statistics every 20 detections (more frequent for debugging)
+        if (this.detectionStats.totalDetections % 20 === 0) {
+            const avgProcessingTime = this.detectionStats.processingTimes.length > 0 ?
+                this.detectionStats.processingTimes.reduce((a, b) => a + b, 0) / this.detectionStats.processingTimes.length : 0;
+                
+            const sessionTime = (Date.now() - this.detectionStats.startTime) / 1000;
+            const detectionRate = this.detectionStats.totalDetections / sessionTime;
+            
+            console.log('📊 Detection Statistics:', {
                 total: this.detectionStats.totalDetections,
                 anomalies: this.detectionStats.anomalyCount,
                 normal: this.detectionStats.normalCount,
+                errors: this.detectionStats.errorCount,
                 anomalyRate: (this.detectionStats.anomalyCount / this.detectionStats.totalDetections * 100).toFixed(2) + '%',
-                avgConfidence: this.detectionStats.averageConfidence.toFixed(3)
+                highConfidenceAnomalies: this.detectionStats.highConfidenceAnomalies,
+                avgConfidence: this.detectionStats.averageConfidence.toFixed(3),
+                avgProcessingTime: avgProcessingTime.toFixed(1) + 'ms',
+                detectionRate: detectionRate.toFixed(2) + '/sec',
+                sessionTime: sessionTime.toFixed(1) + 's'
             });
         }
     }
