@@ -254,15 +254,29 @@ class SoundDitectApp {
             this.handleDetectionResult(result);
         };
         
-        // Connection established with diagnostics
+        // Connection established with enhanced feedback
         this.websocketClient.onConnect = () => {
             console.log('✅ Connected to server successfully');
-            this.uiController.updateSystemStatus('サーバー接続完了');
+            
+            // Update UI based on current mode
+            if (this.currentMode === 'realtime') {
+                this.uiController.updateSystemStatus('リアルタイムモード準備完了');
+                // Update connection status visual feedback
+                const connectionStatus = document.getElementById('connectionStatus');
+                if (connectionStatus) {
+                    connectionStatus.className = 'connection-status ready';
+                }
+            } else {
+                this.uiController.updateSystemStatus('サーバー接続完了');
+            }
+            
+            // Hide loading overlay if visible
+            this.hideLoadingTransition();
             
             // Log connection diagnostics
             const diagnostics = this.websocketClient.getDiagnostics();
-            if (diagnostics.totalReconnections > 0) {
-                console.log(`🔄 Reconnected after ${diagnostics.totalReconnections} attempts`);
+            if (diagnostics.reconnectAttempts > 0) {
+                console.log(`🔄 Reconnected after ${diagnostics.reconnectAttempts} attempts`);
             }
         };
         
@@ -1175,4 +1189,335 @@ window.addEventListener('error', (event) => {
 });
 
 // Export for debugging
-window.SoundDitectApp = app;\n\n// Add UI management methods to app prototype\nSoundDitectApp.prototype.showModeSelection = function() {\n    this.currentInterface = 'selection';\n    this.currentMode = null;\n    \n    // Stop recording if active\n    if (this.isRecording) {\n        this.stopRecording();\n    }\n    \n    // Show mode selection, hide interfaces\n    const modeSelectionPanel = document.querySelector('.mode-selection-panel');\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const offlineInterface = document.getElementById('offlineInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    const offlineResults = document.getElementById('offlineResults');\n    \n    if (modeSelectionPanel) modeSelectionPanel.style.display = 'block';\n    if (realtimeInterface) realtimeInterface.style.display = 'none';\n    if (offlineInterface) offlineInterface.style.display = 'none';\n    if (realtimeResults) realtimeResults.style.display = 'none';\n    if (offlineResults) offlineResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30e2\u30fc\u30c9\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044');\n    \n    console.log('\ud83c\udfaf Mode selection interface shown');\n};\n\nSoundDitectApp.prototype.setMode = function(mode) {\n    this.currentMode = mode;\n    this.currentInterface = mode;\n    \n    console.log(`\ud83d\udd04 Mode set to: ${mode}`);\n    \n    // Hide mode selection\n    const modeSelectionPanel = document.querySelector('.mode-selection-panel');\n    if (modeSelectionPanel) modeSelectionPanel.style.display = 'none';\n    \n    if (mode === 'realtime') {\n        this.showRealtimeInterface();\n    } else if (mode === 'offline') {\n        this.showOfflineInterface();\n    }\n};\n\nSoundDitectApp.prototype.showRealtimeInterface = function() {\n    // Show real-time interface and results\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    const offlineInterface = document.getElementById('offlineInterface');\n    const offlineResults = document.getElementById('offlineResults');\n    \n    if (realtimeInterface) realtimeInterface.style.display = 'block';\n    if (realtimeResults) realtimeResults.style.display = 'block';\n    if (offlineInterface) offlineInterface.style.display = 'none';\n    if (offlineResults) offlineResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30ea\u30a2\u30eb\u30bf\u30a4\u30e0\u30e2\u30fc\u30c9 - \u30b5\u30fc\u30d0\u30fc\u63a5\u7d9a\u4e2d...');\n    \n    console.log('\u26a1 Real-time interface shown');\n};\n\nSoundDitectApp.prototype.showOfflineInterface = function() {\n    // Show offline interface and results\n    const offlineInterface = document.getElementById('offlineInterface');\n    const offlineResults = document.getElementById('offlineResults');\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    \n    if (offlineInterface) offlineInterface.style.display = 'block';\n    if (offlineResults) offlineResults.style.display = 'block';\n    if (realtimeInterface) realtimeInterface.style.display = 'none';\n    if (realtimeResults) realtimeResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30aa\u30d5\u30e9\u30a4\u30f3\u30e2\u30fc\u30c9 - \u9332\u97f3\u6642\u9593\u3092\u8a2d\u5b9a\u3057\u3066\u304f\u3060\u3055\u3044');\n    \n    console.log('\ud83d\udcca Offline interface shown');\n};
+window.SoundDitectApp = app;
+
+// Enhanced UI management methods with visual feedback
+SoundDitectApp.prototype.showModeSelection = function() {
+    this.currentInterface = 'selection';
+    this.currentMode = null;
+    
+    // Stop recording if active
+    if (this.isRecording) {
+        this.stopRecording();
+    }
+    
+    // Clear any loading states
+    this.hideLoadingTransition();
+    
+    // Show mode selection, hide interfaces with smooth transition
+    const modeSelectionPanel = document.querySelector('.mode-selection-panel');
+    const realtimeInterface = document.getElementById('realtimeInterface');
+    const offlineInterface = document.getElementById('offlineInterface');
+    const realtimeResults = document.getElementById('realtimeResults');
+    const offlineResults = document.getElementById('offlineResults');
+    
+    if (modeSelectionPanel) {
+        modeSelectionPanel.style.display = 'block';
+        modeSelectionPanel.style.opacity = '0';
+        setTimeout(() => {
+            modeSelectionPanel.style.transition = 'opacity 0.3s ease';
+            modeSelectionPanel.style.opacity = '1';
+        }, 10);
+    }
+    if (realtimeInterface) realtimeInterface.style.display = 'none';
+    if (offlineInterface) offlineInterface.style.display = 'none';
+    if (realtimeResults) realtimeResults.style.display = 'none';
+    if (offlineResults) offlineResults.style.display = 'none';
+    
+    // Update status with welcoming message
+    this.uiController.updateSystemStatus('動作モードを選択してください');
+    
+    // Reset any mode-specific feedback
+    this.resetModeVisualFeedback();
+    
+    console.log('🎯 Mode selection interface shown with transitions');
+};
+
+SoundDitectApp.prototype.setMode = function(mode) {
+    this.currentMode = mode;
+    this.currentInterface = mode;
+    
+    console.log(`🔄 Mode set to: ${mode}`);
+    
+    // Add immediate visual feedback to clicked button
+    this.highlightSelectedMode(mode);
+    
+    // Add immediate loading feedback
+    this.showLoadingTransition(mode);
+    
+    // Delay interface transition to show loading state
+    setTimeout(() => {
+        // Hide mode selection
+        const modeSelectionPanel = document.querySelector('.mode-selection-panel');
+        if (modeSelectionPanel) {
+            modeSelectionPanel.style.opacity = '0';
+            setTimeout(() => {
+                modeSelectionPanel.style.display = 'none';
+            }, 300);
+        }
+        
+        if (mode === 'realtime') {
+            this.showRealtimeInterface();
+        } else if (mode === 'offline') {
+            this.showOfflineInterface();
+        }
+    }, 1000); // Show loading for 1 second
+};
+
+SoundDitectApp.prototype.showRealtimeInterface = function() {
+    // Show real-time interface and results with smooth transition
+    const realtimeInterface = document.getElementById('realtimeInterface');
+    const realtimeResults = document.getElementById('realtimeResults');
+    const offlineInterface = document.getElementById('offlineInterface');
+    const offlineResults = document.getElementById('offlineResults');
+    
+    // Hide offline components
+    if (offlineInterface) offlineInterface.style.display = 'none';
+    if (offlineResults) offlineResults.style.display = 'none';
+    
+    // Show real-time components with fade-in
+    if (realtimeInterface) {
+        realtimeInterface.style.display = 'block';
+        realtimeInterface.style.opacity = '0';
+        setTimeout(() => {
+            realtimeInterface.style.transition = 'opacity 0.5s ease';
+            realtimeInterface.style.opacity = '1';
+        }, 10);
+    }
+    if (realtimeResults) {
+        realtimeResults.style.display = 'block';
+        realtimeResults.style.opacity = '0';
+        setTimeout(() => {
+            realtimeResults.style.transition = 'opacity 0.5s ease';
+            realtimeResults.style.opacity = '1';
+        }, 200);
+    }
+    
+    // Update status with connection progress
+    this.uiController.updateSystemStatus('リアルタイムモード開始中...');
+    
+    // Show connection progress with detailed feedback
+    this.showConnectionProgress();
+    
+    console.log('⚡ Real-time interface shown with enhanced feedback');
+};
+
+SoundDitectApp.prototype.showOfflineInterface = function() {
+    // Show offline interface and results with smooth transition
+    const offlineInterface = document.getElementById('offlineInterface');
+    const offlineResults = document.getElementById('offlineResults');
+    const realtimeInterface = document.getElementById('realtimeInterface');
+    const realtimeResults = document.getElementById('realtimeResults');
+    
+    // Hide real-time components
+    if (realtimeInterface) realtimeInterface.style.display = 'none';
+    if (realtimeResults) realtimeResults.style.display = 'none';
+    
+    // Show offline components with fade-in
+    if (offlineInterface) {
+        offlineInterface.style.display = 'block';
+        offlineInterface.style.opacity = '0';
+        setTimeout(() => {
+            offlineInterface.style.transition = 'opacity 0.5s ease';
+            offlineInterface.style.opacity = '1';
+        }, 10);
+    }
+    if (offlineResults) {
+        offlineResults.style.display = 'block';
+        offlineResults.style.opacity = '0';
+        setTimeout(() => {
+            offlineResults.style.transition = 'opacity 0.5s ease';
+            offlineResults.style.opacity = '1';
+        }, 200);
+    }
+    
+    // Update status with clear instructions
+    this.uiController.updateSystemStatus('オフライン分析モード準備完了');
+    
+    // Show helpful status message
+    this.showOfflineModeInstructions();
+    
+    console.log('📊 Offline interface shown with enhanced feedback');
+};
+
+// New visual feedback methods
+SoundDitectApp.prototype.showLoadingTransition = function(mode) {
+    const modeText = mode === 'realtime' ? 'リアルタイム' : 'オフライン';
+    
+    // Create loading overlay if it doesn't exist
+    let loadingOverlay = document.getElementById('loadingOverlay');
+    if (!loadingOverlay) {
+        loadingOverlay = document.createElement('div');
+        loadingOverlay.id = 'loadingOverlay';
+        loadingOverlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9998;
+            backdrop-filter: blur(5px);
+        `;
+        document.body.appendChild(loadingOverlay);
+    }
+    
+    loadingOverlay.innerHTML = `
+        <div style="text-align: center;">
+            <div style="width: 50px; height: 50px; border: 4px solid #e2e8f0; border-top: 4px solid #4299e1; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+            <h2 style="color: #4a5568; margin-bottom: 10px; font-size: 1.5rem;">${modeText}モード準備中</h2>
+            <p style="color: #718096; font-size: 1.1rem;">インターフェースを準備しています...</p>
+        </div>
+    `;
+    
+    loadingOverlay.style.display = 'flex';
+    loadingOverlay.style.opacity = '0';
+    setTimeout(() => {
+        loadingOverlay.style.transition = 'opacity 0.3s ease';
+        loadingOverlay.style.opacity = '1';
+    }, 10);
+    
+    console.log(`📝 Loading transition shown for ${mode} mode`);
+};
+
+SoundDitectApp.prototype.hideLoadingTransition = function() {
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    if (loadingOverlay) {
+        loadingOverlay.style.opacity = '0';
+        setTimeout(() => {
+            loadingOverlay.style.display = 'none';
+        }, 300);
+    }
+};
+
+SoundDitectApp.prototype.highlightSelectedMode = function(mode) {
+    const realtimeBtn = document.getElementById('selectRealtimeMode');
+    const offlineBtn = document.getElementById('selectOfflineMode');
+    const realtimeCard = document.getElementById('realtimeModeCard');
+    const offlineCard = document.getElementById('offlineModeCard');
+    
+    // Reset all buttons and cards
+    [realtimeBtn, offlineBtn].forEach(btn => {
+        if (btn) {
+            btn.style.transform = '';
+            btn.style.backgroundColor = '';
+            btn.disabled = false;
+        }
+    });
+    
+    [realtimeCard, offlineCard].forEach(card => {
+        if (card) {
+            card.style.transform = '';
+            card.style.borderColor = '';
+            card.style.boxShadow = '';
+        }
+    });
+    
+    // Highlight selected mode
+    const selectedBtn = mode === 'realtime' ? realtimeBtn : offlineBtn;
+    const selectedCard = mode === 'realtime' ? realtimeCard : offlineCard;
+    
+    if (selectedBtn) {
+        selectedBtn.style.transform = 'scale(0.95)';
+        selectedBtn.style.backgroundColor = '#2d3748';
+        selectedBtn.disabled = true;
+        selectedBtn.textContent = '選択中...';
+    }
+    
+    if (selectedCard) {
+        selectedCard.style.transform = 'scale(1.02)';
+        selectedCard.style.borderColor = '#4299e1';
+        selectedCard.style.boxShadow = '0 10px 30px rgba(66, 153, 225, 0.3)';
+    }
+};
+
+SoundDitectApp.prototype.showConnectionProgress = function() {
+    if (this.currentMode === 'realtime') {
+        // Update connection status to show progress
+        const connectionStatus = document.getElementById('connectionStatus');
+        if (connectionStatus) {
+            connectionStatus.style.borderLeft = '4px solid #ed8936';
+        }
+        
+        // Start WebSocket connection if not connected
+        if (!this.websocketClient.isConnected) {
+            this.uiController.updateSystemStatus('サーバーに接続中...');
+            setTimeout(() => {
+                if (this.websocketClient.isConnected) {
+                    this.uiController.updateSystemStatus('リアルタイムモード準備完了');
+                } else {
+                    this.uiController.updateSystemStatus('サーバー接続に時間がかかっています...');
+                }
+            }, 3000);
+        } else {
+            this.uiController.updateSystemStatus('リアルタイムモード準備完了');
+        }
+    }
+};
+
+SoundDitectApp.prototype.showOfflineModeInstructions = function() {
+    // Create helpful status notification for offline mode
+    const statusMessage = document.createElement('div');
+    statusMessage.style.cssText = `
+        background: #e6fffa;
+        border: 1px solid #81e6d9;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 15px 0;
+        text-align: center;
+        color: #234e52;
+    `;
+    statusMessage.innerHTML = `
+        <strong>📊 オフライン分析モード</strong><br>
+        録音時間を設定して「録音開始」をクリックしてください。<br>
+        録音完了後、詳細な波形分析結果を表示します。
+    `;
+    
+    const offlineInterface = document.getElementById('offlineInterface');
+    if (offlineInterface && !document.getElementById('offlineInstructions')) {
+        statusMessage.id = 'offlineInstructions';
+        offlineInterface.insertBefore(statusMessage, offlineInterface.firstChild.nextSibling);
+    }
+};
+
+SoundDitectApp.prototype.resetModeVisualFeedback = function() {
+    // Reset button states
+    const realtimeBtn = document.getElementById('selectRealtimeMode');
+    const offlineBtn = document.getElementById('selectOfflineMode');
+    
+    if (realtimeBtn) {
+        realtimeBtn.style.transform = '';
+        realtimeBtn.style.backgroundColor = '';
+        realtimeBtn.disabled = false;
+        realtimeBtn.textContent = 'リアルタイムモードを選択';
+    }
+    
+    if (offlineBtn) {
+        offlineBtn.style.transform = '';
+        offlineBtn.style.backgroundColor = '';
+        offlineBtn.disabled = false;
+        offlineBtn.textContent = 'オフラインモードを選択';
+    }
+    
+    // Reset card states
+    const realtimeCard = document.getElementById('realtimeModeCard');
+    const offlineCard = document.getElementById('offlineModeCard');
+    
+    [realtimeCard, offlineCard].forEach(card => {
+        if (card) {
+            card.style.transform = '';
+            card.style.borderColor = '';
+            card.style.boxShadow = '';
+        }
+    });
+    
+    // Remove any temporary instructions
+    const instructions = document.getElementById('offlineInstructions');
+    if (instructions) {
+        instructions.remove();
+    }
+};
