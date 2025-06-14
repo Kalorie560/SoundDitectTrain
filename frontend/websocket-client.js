@@ -11,8 +11,8 @@ class WebSocketClient {
         this.isConnected = false;
         this.clientId = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 15; // Increased retry attempts
-        this.reconnectDelay = 1500; // Faster initial reconnection
+        this.maxReconnectAttempts = 5; // Simplified retry attempts
+        this.reconnectDelay = 3000; // More reasonable initial delay
         this.pingInterval = null;
         this.pingTimeout = null;
         
@@ -24,18 +24,9 @@ class WebSocketClient {
         this.messageQueue = [];
         this.maxQueueSize = 100;
         
-        // Connection quality tracking
+        // Simple connection tracking
         this.connectionQuality = 'unknown';
         this.lastPingTime = 0;
-        this.pingLatency = 0;
-        this.connectionErrors = [];
-        this.connectionStartTime = null;
-        this.lastSuccessfulConnection = null;
-        
-        // Health monitoring
-        this.healthCheckInterval = null;
-        this.connectionHealthScore = 100;
-        this.consecutiveFailures = 0;
         
         // Callbacks
         this.onConnect = null;
@@ -45,15 +36,9 @@ class WebSocketClient {
         this.onConnectionStateChange = null;
         this.onConnectionQualityChange = null;
         
-        // Statistics
+        // Simple statistics
         this.messagesSent = 0;
         this.messagesReceived = 0;
-        this.totalReconnections = 0;
-        this.averageLatency = 0;
-        
-        // Smart reconnection strategy
-        this.reconnectStrategy = 'adaptive'; // 'adaptive', 'fixed', 'exponential'
-        this.adaptiveDelayMultiplier = 1;
         
         this.connect();
     }
@@ -87,9 +72,9 @@ class WebSocketClient {
                 if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
                     console.warn('⏰ Connection timeout - closing WebSocket');
                     this.ws.close();
-                    this.handleConnectionError('接続タイムアウト - サーバーが応答しません');
+                    this.handleConnectionError('接続タイムアウト - サーバーへの接続に時間がかかりすぎています');
                 }
-            }, 10000); // 10 second timeout
+            }, 20000); // 20 second timeout - more reasonable for slower networks
             
             // Clear timeout on successful connection
             this.ws.addEventListener('open', () => {
@@ -98,7 +83,6 @@ class WebSocketClient {
             
         } catch (error) {
             console.error('❌ Failed to create WebSocket connection:', error);
-            this.logConnectionError(error);
             this.handleConnectionError('WebSocket接続の作成に失敗しました');
         }
     }
@@ -111,21 +95,12 @@ class WebSocketClient {
             console.log('✅ WebSocket connected successfully');
             this.isConnected = true;
             this.reconnectAttempts = 0;
-            this.consecutiveFailures = 0;
-            this.connectionStartTime = Date.now();
-            this.lastSuccessfulConnection = Date.now();
-            this.connectionQuality = 'excellent';
-            this.connectionHealthScore = 100;
-            this.adaptiveDelayMultiplier = 1; // Reset adaptive delay
+            this.connectionQuality = 'connected';
             
-            // Update statistics
-            if (this.totalReconnections > 0) {
-                console.log(`🔄 Reconnection successful after ${this.totalReconnections} attempts`);
-            }
+            console.log('✅ WebSocket connection established successfully');
             
-            // Start monitoring mechanisms
+            // Start simple ping mechanism
             this.startPing();
-            this.startHealthMonitoring();
             
             // Process queued messages
             this.processMessageQueue();
@@ -140,7 +115,7 @@ class WebSocketClient {
             }
             
             if (this.onConnectionQualityChange) {
-                this.onConnectionQualityChange(this.connectionQuality, this.connectionHealthScore);
+                this.onConnectionQualityChange(this.connectionQuality, 100);
             }
         };
 
@@ -168,12 +143,10 @@ class WebSocketClient {
             this.clientId = null;
             this.connectionQuality = 'disconnected';
             
-            // Log the disconnection
-            this.logConnectionError({
-                type: 'disconnect',
+            // Simple disconnection logging
+            console.log('Connection closed:', {
                 code: event.code,
-                reason: event.reason || reasonText,
-                wasExpected: event.code === 1000
+                reason: event.reason || reasonText
             });
             
             // Reset recording state on disconnection with detailed logging
@@ -185,15 +158,10 @@ class WebSocketClient {
                 console.log('✅ Recording state reset for restart capability');
             }
             
-            // Stop monitoring mechanisms
+            // Stop ping mechanism
             this.stopPing();
-            this.stopHealthMonitoring();
             
-            // Update connection health score
-            if (wasConnected) {
-                this.connectionHealthScore = Math.max(0, this.connectionHealthScore - 20);
-                this.consecutiveFailures++;
-            }
+            // Simple connection state tracking
             
             // Notify disconnection
             if (this.onDisconnect) {
@@ -205,7 +173,7 @@ class WebSocketClient {
             }
             
             if (this.onConnectionQualityChange) {
-                this.onConnectionQualityChange(this.connectionQuality, this.connectionHealthScore);
+                this.onConnectionQualityChange('disconnected', 0);
             }
             
             // Attempt reconnection if not a normal closure
@@ -447,7 +415,7 @@ class WebSocketClient {
             if (this.isConnected) {
                 this.sendPing();
             }
-        }, 15000); // Ping every 15 seconds for more frequent keepalive
+        }, 30000); // Ping every 30 seconds - less aggressive
     }
 
     /**
@@ -479,17 +447,14 @@ class WebSocketClient {
         const success = this.sendMessage(pingMessage);
         if (!success) {
             console.warn('⚠️ Failed to send ping - connection may be unstable');
-            this.updateConnectionHealth(-10);
             return;
         }
         
-        // Set timeout for pong response with adaptive timeout
-        const pingTimeout = Math.min(30000, 15000 + (this.consecutiveFailures * 2000));
+        // Set timeout for pong response - simplified
         this.pingTimeout = setTimeout(() => {
-            console.warn(`⏰ Ping timeout after ${pingTimeout}ms - connection may be lost`);
-            this.updateConnectionHealth(-25);
-            this.handleConnectionError('接続タイムアウト - サーバーが応答しません');
-        }, pingTimeout);
+            console.warn('⏰ Ping timeout - connection may be lost');
+            this.handleConnectionError('サーバーが応答しません - 接続を確認中...');
+        }, 15000); // 15 second timeout for ping response
     }
 
     /**
@@ -501,33 +466,14 @@ class WebSocketClient {
             this.pingTimeout = null;
         }
         
-        // Calculate latency
-        if (this.lastPingTime > 0) {
-            this.pingLatency = Date.now() - this.lastPingTime;
-            
-            // Update average latency
-            if (this.averageLatency === 0) {
-                this.averageLatency = this.pingLatency;
-            } else {
-                this.averageLatency = (this.averageLatency * 0.8) + (this.pingLatency * 0.2);
-            }
-            
-            // Update connection quality based on latency
-            this.updateConnectionQuality();
-            
-            console.log(`🏓 Pong received: ${this.pingLatency}ms (avg: ${this.averageLatency.toFixed(1)}ms)`);
-        }
+        console.log('🏓 Pong received - connection is alive');
     }
 
     /**
-     * Handle connection errors with enhanced recovery mechanisms
+     * Handle connection errors with simple recovery
      */
     handleConnectionError(errorMessage) {
         console.error('❌ Connection error:', errorMessage);
-        
-        // Log connection statistics for debugging
-        const stats = this.getStatistics();
-        console.log('📊 Connection statistics at error:', stats);
         
         // Clear any pending ping timeout
         if (this.pingTimeout) {
@@ -535,13 +481,11 @@ class WebSocketClient {
             this.pingTimeout = null;
         }
         
-        // Reset recording state on connection error with enhanced cleanup
+        // Reset recording state on connection error
         if (this.isRecording || this.recordingSessionId) {
             console.log('🚨 Resetting recording state due to connection error');
-            console.log('   Affected session ID:', this.recordingSessionId);
             this.isRecording = false;
             this.recordingSessionId = null;
-            console.log('✅ Recording state completely reset - ready for restart');
         }
         
         if (this.onError) {
@@ -552,33 +496,23 @@ class WebSocketClient {
             this.onConnectionStateChange('error');
         }
         
-        // Enhanced auto-reconnect logic
-        const shouldReconnect = (
-            this.reconnectAttempts < this.maxReconnectAttempts && (
-                errorMessage.includes('タイムアウト') ||
-                errorMessage.includes('WebSocket') ||
-                errorMessage.includes('接続')
-            )
-        );
-        
-        if (shouldReconnect) {
+        // Simple auto-reconnect logic
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
             console.log('🔄 Attempting auto-reconnect due to error...');
             this.scheduleReconnect();
         } else {
-            console.warn('🚫 Max reconnection attempts reached or unrecoverable error');
+            console.warn('🚫 Max reconnection attempts reached');
         }
     }
 
     /**
-     * Schedule reconnection attempt with improved backoff strategy
+     * Schedule simple reconnection attempt
      */
     scheduleReconnect() {
         this.reconnectAttempts++;
         
-        // Smart exponential backoff with maximum delay cap
-        const baseDelay = this.reconnectDelay;
-        const exponentialDelay = baseDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-        const delay = Math.min(exponentialDelay, 30000); // Cap at 30 seconds
+        // Simple exponential backoff
+        const delay = Math.min(this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1), 30000);
         
         console.log(`🔄 Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
         
@@ -655,129 +589,61 @@ class WebSocketClient {
     }
 
     /**
-     * Get connection statistics
+     * Get simple connection statistics
      */
     getStatistics() {
-        const now = Date.now();
-        const connectionDuration = this.connectionStartTime ? 
-            (now - this.connectionStartTime) / 1000 : 0;
-        
         return {
             isConnected: this.isConnected,
             clientId: this.clientId,
             messagesSent: this.messagesSent,
             messagesReceived: this.messagesReceived,
-            connectionDuration: connectionDuration,
             reconnectAttempts: this.reconnectAttempts,
             queuedMessages: this.messageQueue.length
         };
     }
 
     /**
-     * Reset connection statistics
+     * Reset simple statistics
      */
     resetStatistics() {
         this.messagesSent = 0;
         this.messagesReceived = 0;
-        this.totalReconnections = 0;
-        this.averageLatency = 0;
-        this.connectionStartTime = this.isConnected ? Date.now() : null;
-        this.connectionErrors = [];
-        this.connectionHealthScore = 100;
-        this.consecutiveFailures = 0;
     }
     
     /**
-     * Update connection health score
+     * Simple connection health stub
      */
-    updateConnectionHealth(delta) {
-        this.connectionHealthScore = Math.max(0, Math.min(100, this.connectionHealthScore + delta));
-        
-        if (this.onConnectionQualityChange) {
-            this.onConnectionQualityChange(this.connectionQuality, this.connectionHealthScore);
-        }
+    updateConnectionHealth() {
+        // Stub - no complex health monitoring
+        return;
     }
     
     /**
-     * Update connection quality based on latency and health
+     * Simple connection quality stub
      */
     updateConnectionQuality() {
-        let quality = 'unknown';
-        
+        // Simple quality assessment
         if (!this.isConnected) {
-            quality = 'disconnected';
-        } else if (this.averageLatency < 100 && this.connectionHealthScore > 80) {
-            quality = 'excellent';
-        } else if (this.averageLatency < 200 && this.connectionHealthScore > 60) {
-            quality = 'good';
-        } else if (this.averageLatency < 500 && this.connectionHealthScore > 40) {
-            quality = 'fair';
+            this.connectionQuality = 'disconnected';
         } else {
-            quality = 'poor';
-        }
-        
-        if (quality !== this.connectionQuality) {
-            console.log(`📊 Connection quality changed: ${this.connectionQuality} → ${quality} (latency: ${this.averageLatency.toFixed(1)}ms, health: ${this.connectionHealthScore}%)`);
-            this.connectionQuality = quality;
-            
-            if (this.onConnectionQualityChange) {
-                this.onConnectionQualityChange(this.connectionQuality, this.connectionHealthScore);
-            }
-        }
-        
-        // Gradually improve health score on successful pings
-        if (this.isConnected) {
-            this.updateConnectionHealth(2);
+            this.connectionQuality = 'connected';
         }
     }
     
     /**
-     * Start health monitoring
+     * Health monitoring stub - removed
      */
     startHealthMonitoring() {
-        this.healthCheckInterval = setInterval(() => {
-            if (this.isConnected) {
-                // Gradually decrease health if no recent activity
-                const timeSinceLastPing = Date.now() - this.lastPingTime;
-                if (timeSinceLastPing > 60000) { // 1 minute
-                    this.updateConnectionHealth(-5);
-                }
-                
-                // Update connection quality
-                this.updateConnectionQuality();
-            }
-        }, 30000); // Check every 30 seconds
+        // Stub - complex health monitoring removed
+        return;
     }
     
     /**
-     * Stop health monitoring
+     * Health monitoring stub - removed
      */
     stopHealthMonitoring() {
-        if (this.healthCheckInterval) {
-            clearInterval(this.healthCheckInterval);
-            this.healthCheckInterval = null;
-        }
-    }
-    
-    /**
-     * Log connection errors for analysis
-     */
-    logConnectionError(error) {
-        const errorEntry = {
-            timestamp: Date.now(),
-            error: error,
-            reconnectAttempt: this.reconnectAttempts,
-            consecutiveFailures: this.consecutiveFailures
-        };
-        
-        this.connectionErrors.push(errorEntry);
-        
-        // Keep only last 50 errors
-        if (this.connectionErrors.length > 50) {
-            this.connectionErrors = this.connectionErrors.slice(-50);
-        }
-        
-        console.log('📝 Connection error logged:', errorEntry);
+        // Stub - complex health monitoring removed
+        return;
     }
     
     /**
@@ -805,108 +671,32 @@ class WebSocketClient {
     }
     
     /**
-     * Get adaptive reconnection delay based on strategy
+     * Simple reconnection delay - removed complex adaptive logic
      */
     getReconnectionDelay() {
-        switch (this.reconnectStrategy) {
-            case 'fixed':
-                return this.reconnectDelay;
-                
-            case 'exponential':
-                return Math.min(30000, this.reconnectDelay * Math.pow(2, this.reconnectAttempts));
-                
-            case 'adaptive':
-            default:
-                // Adaptive strategy based on connection quality and failure rate
-                let baseDelay = this.reconnectDelay;
-                
-                // Increase delay based on consecutive failures
-                const failureMultiplier = 1 + (this.consecutiveFailures * 0.5);
-                
-                // Decrease delay if connection was recently stable
-                const stabilityBonus = this.lastSuccessfulConnection ? 
-                    Math.max(0.5, 1 - ((Date.now() - this.lastSuccessfulConnection) / 300000)) : 1; // 5 minute window
-                
-                // Increase delay based on connection health
-                const healthPenalty = 1 + ((100 - this.connectionHealthScore) / 100);
-                
-                const adaptiveDelay = baseDelay * failureMultiplier * stabilityBonus * healthPenalty * this.adaptiveDelayMultiplier;
-                
-                // Cap the delay
-                return Math.min(60000, Math.max(1000, adaptiveDelay));
-        }
+        // Simple exponential backoff
+        return Math.min(30000, this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts));
     }
     
     /**
-     * Enhanced reconnection with smart retry logic
-     */
-    scheduleReconnect() {
-        this.reconnectAttempts++;
-        this.totalReconnections++;
-        
-        const delay = this.getReconnectionDelay();
-        
-        // Update adaptive multiplier for next time
-        if (this.reconnectStrategy === 'adaptive') {
-            this.adaptiveDelayMultiplier *= 1.2; // Gradually increase delay
-        }
-        
-        console.log(`🔄 Scheduling smart reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
-        console.log(`📊 Reconnection strategy: ${this.reconnectStrategy}, Health: ${this.connectionHealthScore}%, Failures: ${this.consecutiveFailures}`);
-        
-        if (this.onConnectionStateChange) {
-            this.onConnectionStateChange('reconnecting');
-        }
-        
-        setTimeout(() => {
-            if (!this.isConnected && this.reconnectAttempts <= this.maxReconnectAttempts) {
-                console.log(`🔌 Executing smart reconnection attempt ${this.reconnectAttempts}`);
-                this.connect();
-            } else if (this.reconnectAttempts > this.maxReconnectAttempts) {
-                console.error('🚫 Maximum reconnection attempts exceeded');
-                if (this.onConnectionStateChange) {
-                    this.onConnectionStateChange('failed');
-                }
-                if (this.onError) {
-                    this.onError('最大再接続回数に達しました。ページを再読み込みしてください。');
-                }
-            }
-        }, delay);
-    }
-    
-    /**
-     * Get detailed connection diagnostics
+     * Simple diagnostics stub
      */
     getDiagnostics() {
         return {
             isConnected: this.isConnected,
             connectionQuality: this.connectionQuality,
-            connectionHealthScore: this.connectionHealthScore,
-            pingLatency: this.pingLatency,
-            averageLatency: this.averageLatency,
             reconnectAttempts: this.reconnectAttempts,
-            totalReconnections: this.totalReconnections,
-            consecutiveFailures: this.consecutiveFailures,
-            connectionErrors: this.connectionErrors.slice(-10), // Last 10 errors
-            lastSuccessfulConnection: this.lastSuccessfulConnection,
-            connectionDuration: this.connectionStartTime ? Date.now() - this.connectionStartTime : 0,
             messagesSent: this.messagesSent,
             messagesReceived: this.messagesReceived,
-            queuedMessages: this.messageQueue.length,
-            reconnectStrategy: this.reconnectStrategy
+            queuedMessages: this.messageQueue.length
         };
     }
     
     /**
-     * Force manual reconnection with reset
+     * Simple force reconnect stub
      */
     forceReconnect() {
         console.log('🔄 Force reconnection initiated');
-        
-        // Reset some counters for fresh start
-        this.consecutiveFailures = Math.max(0, this.consecutiveFailures - 2);
-        this.adaptiveDelayMultiplier = Math.max(1, this.adaptiveDelayMultiplier * 0.8);
-        
         this.reconnect();
     }
 }

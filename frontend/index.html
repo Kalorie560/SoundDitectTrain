@@ -22,8 +22,32 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Control Panel -->
-            <section class="control-panel">
+            <!-- Mode Selection -->
+            <section class="mode-selection-panel">
+                <h2>動作モード選択</h2>
+                <div class="mode-cards">
+                    <div class="mode-card" id="realtimeModeCard">
+                        <div class="mode-icon">⚡</div>
+                        <h3>リアルタイムモード</h3>
+                        <p>録音中にリアルタイムで音声を判定します。高性能なPCに適しています。</p>
+                        <button class="mode-select-btn" id="selectRealtimeMode">リアルタイムモードを選択</button>
+                    </div>
+                    <div class="mode-card" id="offlineModeCard">
+                        <div class="mode-icon">📊</div>
+                        <h3>オフラインモード</h3>
+                        <p>録音完了後に一括で分析します。詳細な分析結果と波形表示が利用できます。</p>
+                        <button class="mode-select-btn" id="selectOfflineMode">オフラインモードを選択</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Real-time Mode Interface -->
+            <section class="realtime-interface" id="realtimeInterface" style="display: none;">
+                <div class="interface-header">
+                    <h2>⚡ リアルタイムモード</h2>
+                    <button class="back-btn" id="backFromRealtime">← モード選択に戻る</button>
+                </div>
+                
                 <div class="connection-status" id="connectionStatus">
                     <div class="status-indicator offline" id="statusIndicator"></div>
                     <div class="status-text">
@@ -32,42 +56,10 @@
                     </div>
                 </div>
 
-                <!-- Mode Selection -->
-                <div class="mode-selection">
-                    <h3>動作モード選択</h3>
-                    <div class="mode-options">
-                        <label class="mode-option">
-                            <input type="radio" name="operationMode" value="realtime" id="realtimeMode" checked>
-                            <span class="mode-label">
-                                <span class="mode-icon">⚡</span>
-                                <span class="mode-title">リアルタイム</span>
-                                <span class="mode-description">録音中にリアルタイムで判定</span>
-                            </span>
-                        </label>
-                        <label class="mode-option">
-                            <input type="radio" name="operationMode" value="offline" id="offlineMode">
-                            <span class="mode-label">
-                                <span class="mode-icon">📊</span>
-                                <span class="mode-title">オフライン</span>
-                                <span class="mode-description">録音完了後に一括判定</span>
-                            </span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Offline Mode Settings -->
-                <div class="offline-settings" id="offlineSettings" style="display: none;">
-                    <div class="setting-group">
-                        <label for="recordingDuration">録音時間 (秒):</label>
-                        <input type="range" id="recordingDuration" min="5" max="60" step="5" value="30">
-                        <span id="durationValue">30</span>
-                    </div>
-                </div>
-
                 <div class="recording-controls">
                     <button id="startButton" class="btn btn-primary" disabled>
                         <span class="btn-icon">🎤</span>
-                        <span id="startButtonText">録音開始</span>
+                        録音開始
                     </button>
                     <button id="stopButton" class="btn btn-secondary" disabled>
                         <span class="btn-icon">⏹️</span>
@@ -88,8 +80,35 @@
                 </div>
             </section>
 
-            <!-- Detection Results -->
-            <section class="results-section">
+            <!-- Offline Mode Interface -->
+            <section class="offline-interface" id="offlineInterface" style="display: none;">
+                <div class="interface-header">
+                    <h2>📊 オフラインモード</h2>
+                    <button class="back-btn" id="backFromOffline">← モード選択に戻る</button>
+                </div>
+
+                <div class="offline-settings">
+                    <div class="setting-group">
+                        <label for="recordingDuration">録音時間 (秒):</label>
+                        <input type="range" id="recordingDuration" min="5" max="60" step="5" value="30">
+                        <span id="durationValue">30</span>秒
+                    </div>
+                </div>
+
+                <div class="recording-controls">
+                    <button id="offlineStartButton" class="btn btn-primary">
+                        <span class="btn-icon">🎤</span>
+                        <span id="offlineStartButtonText">録音開始 (30秒)</span>
+                    </button>
+                    <button id="offlineStopButton" class="btn btn-secondary" disabled>
+                        <span class="btn-icon">⏹️</span>
+                        録音停止
+                    </button>
+                </div>
+            </section>
+
+            <!-- Real-time Detection Results -->
+            <section class="realtime-results" id="realtimeResults" style="display: none;">
                 <div class="detection-display">
                     <div class="detection-status" id="detectionStatus">
                         <div class="status-circle unknown" id="statusCircle"></div>
@@ -121,8 +140,8 @@
             </section>
 
             <!-- Offline Mode Results -->
-            <section class="offline-results-section" id="offlineResultsSection" style="display: none;">
-                <h3>オフライン分析結果</h3>
+            <section class="offline-results" id="offlineResults" style="display: none;">
+                <h3>📊 オフライン分析結果</h3>
                 
                 <!-- Processing Status -->
                 <div class="processing-status" id="processingStatus">

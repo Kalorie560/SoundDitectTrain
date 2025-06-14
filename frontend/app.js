@@ -63,7 +63,7 @@ class SoundDitectApp {
             this.websocketClient = new WebSocketClient();
             this.setupWebSocketCallbacks();
             
-            // Set up UI button handlers
+            // Set up UI button handlers (only for real-time mode)
             this.uiController.setButtonHandlers(
                 () => this.startRecording(),
                 () => this.stopRecording(),
@@ -72,6 +72,9 @@ class SoundDitectApp {
             
             // Set up mode selection handlers
             this.setupModeSelection();
+            
+            // Show initial mode selection
+            this.showModeSelection();
             
             this.isInitialized = true;
             this.uiController.updateSystemStatus('システム正常');
@@ -1150,4 +1153,4 @@ window.addEventListener('error', (event) => {
 });
 
 // Export for debugging
-window.SoundDitectApp = app;
+window.SoundDitectApp = app;\n\n// Add UI management methods to app prototype\nSoundDitectApp.prototype.showModeSelection = function() {\n    this.currentInterface = 'selection';\n    this.currentMode = null;\n    \n    // Stop recording if active\n    if (this.isRecording) {\n        this.stopRecording();\n    }\n    \n    // Show mode selection, hide interfaces\n    const modeSelectionPanel = document.querySelector('.mode-selection-panel');\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const offlineInterface = document.getElementById('offlineInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    const offlineResults = document.getElementById('offlineResults');\n    \n    if (modeSelectionPanel) modeSelectionPanel.style.display = 'block';\n    if (realtimeInterface) realtimeInterface.style.display = 'none';\n    if (offlineInterface) offlineInterface.style.display = 'none';\n    if (realtimeResults) realtimeResults.style.display = 'none';\n    if (offlineResults) offlineResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30e2\u30fc\u30c9\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044');\n    \n    console.log('\ud83c\udfaf Mode selection interface shown');\n};\n\nSoundDitectApp.prototype.setMode = function(mode) {\n    this.currentMode = mode;\n    this.currentInterface = mode;\n    \n    console.log(`\ud83d\udd04 Mode set to: ${mode}`);\n    \n    // Hide mode selection\n    const modeSelectionPanel = document.querySelector('.mode-selection-panel');\n    if (modeSelectionPanel) modeSelectionPanel.style.display = 'none';\n    \n    if (mode === 'realtime') {\n        this.showRealtimeInterface();\n    } else if (mode === 'offline') {\n        this.showOfflineInterface();\n    }\n};\n\nSoundDitectApp.prototype.showRealtimeInterface = function() {\n    // Show real-time interface and results\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    const offlineInterface = document.getElementById('offlineInterface');\n    const offlineResults = document.getElementById('offlineResults');\n    \n    if (realtimeInterface) realtimeInterface.style.display = 'block';\n    if (realtimeResults) realtimeResults.style.display = 'block';\n    if (offlineInterface) offlineInterface.style.display = 'none';\n    if (offlineResults) offlineResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30ea\u30a2\u30eb\u30bf\u30a4\u30e0\u30e2\u30fc\u30c9 - \u30b5\u30fc\u30d0\u30fc\u63a5\u7d9a\u4e2d...');\n    \n    console.log('\u26a1 Real-time interface shown');\n};\n\nSoundDitectApp.prototype.showOfflineInterface = function() {\n    // Show offline interface and results\n    const offlineInterface = document.getElementById('offlineInterface');\n    const offlineResults = document.getElementById('offlineResults');\n    const realtimeInterface = document.getElementById('realtimeInterface');\n    const realtimeResults = document.getElementById('realtimeResults');\n    \n    if (offlineInterface) offlineInterface.style.display = 'block';\n    if (offlineResults) offlineResults.style.display = 'block';\n    if (realtimeInterface) realtimeInterface.style.display = 'none';\n    if (realtimeResults) realtimeResults.style.display = 'none';\n    \n    // Update status\n    this.uiController.updateSystemStatus('\u30aa\u30d5\u30e9\u30a4\u30f3\u30e2\u30fc\u30c9 - \u9332\u97f3\u6642\u9593\u3092\u8a2d\u5b9a\u3057\u3066\u304f\u3060\u3055\u3044');\n    \n    console.log('\ud83d\udcca Offline interface shown');\n};
