@@ -247,6 +247,12 @@ class UIController {
                 this.elements.startButton.disabled = false;
                 qualityText = this.getQualityText(quality, healthScore);
                 break;
+            case 'waiting':
+                statusText = 'サーバー待機中...';
+                indicatorClass = 'waiting';
+                this.elements.startButton.disabled = true;
+                qualityText = 'バックエンドの準備を待っています';
+                break;
             case 'connecting':
                 statusText = '接続中...';
                 indicatorClass = 'connecting';
@@ -269,7 +275,7 @@ class UIController {
                 statusText = '接続失敗';
                 indicatorClass = 'failed';
                 this.elements.startButton.disabled = true;
-                qualityText = 'ページを再読み込みしてください';
+                qualityText = 'オフラインモードをお試しください';
                 break;
             case 'error':
                 statusText = '接続エラー';

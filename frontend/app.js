@@ -221,11 +221,60 @@ class SoundDitectApp {
                 currentHost: window.location.host
             });
             
-            console.warn('⚠️ WebSocket system initialization failed, real-time features will be limited');
-            this.uiController.showError('サーバー接続の初期化に失敗しました。リアルタイム機能が制限される可能性があります。');
+            console.warn('⚠️ WebSocket system initialization failed, continuing with offline-only mode');
+            this.uiController.updateSystemStatus('オフラインモードで動作しています (サーバー接続なし)');
+            
+            // Create a fallback WebSocket client that only supports offline operations
+            this.websocketClient = this.createFallbackWebSocketClient();
             
             // Don't throw, continue with offline-only functionality
         }
+    }
+    
+    /**
+     * Create a fallback WebSocket client for offline-only operation
+     */
+    createFallbackWebSocketClient() {
+        return {
+            isConnected: false,
+            startRecording: () => {
+                console.warn('⚠️ Real-time recording not available - server not connected');
+                return false;
+            },
+            stopRecording: () => {
+                console.warn('⚠️ Real-time recording not available - server not connected');
+                return false;
+            },
+            sendAudioData: () => {
+                console.warn('⚠️ Audio data sending not available - server not connected');
+                return false;
+            },
+            reconnect: () => {
+                console.log('🔄 Attempting to reconnect...');
+                if (this.websocketClient && this.websocketClient.constructor === WebSocketClient) {
+                    this.websocketClient.reconnect();
+                } else {
+                    // Try to create a new WebSocket client
+                    try {
+                        this.websocketClient = new WebSocketClient();
+                        this.setupWebSocketCallbacks();
+                    } catch (error) {
+                        console.error('❌ Failed to create new WebSocket client:', error);
+                    }
+                }
+            },
+            disconnect: () => console.log('🔌 Fallback client disconnect (no-op)'),
+            getConnectionStatus: () => 'disconnected',
+            getStatistics: () => ({ fallback: true, isConnected: false }),
+            getDiagnostics: () => ({ fallback: true, connectionStatus: 'unavailable' }),
+            forceReconnect: () => this.createFallbackWebSocketClient().reconnect(),
+            onConnect: null,
+            onDisconnect: null,
+            onDetectionResult: null,
+            onError: null,
+            onConnectionStateChange: null,
+            onConnectionQualityChange: null
+        };
     }
     
     /**
@@ -635,14 +684,23 @@ class SoundDitectApp {
      */
     async startRealtimeRecording() {
         if (!this.websocketClient.isConnected) {
-            this.uiController.showError('サーバーに接続されていません');
+            const errorMessage = 'サーバーに接続されていません。オフラインモードをお試しください。';
+            this.uiController.showError(errorMessage);
+            
+            // Offer the option to try reconnecting
+            setTimeout(() => {
+                if (confirm('サーバーに再接続を試みますか？')) {
+                    this.forceReconnect();
+                }
+            }, 2000);
+            
             return false;
         }
         
         // Start WebSocket recording session
         const wsSuccess = this.websocketClient.startRecording();
         if (!wsSuccess) {
-            this.uiController.showError('録音セッションの開始に失敗しました');
+            this.uiController.showError('録音セッションの開始に失敗しました。接続を確認してください。');
             return false;
         }
         
