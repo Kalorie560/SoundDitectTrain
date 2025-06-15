@@ -40,7 +40,78 @@ class WebSocketClient {
         this.messagesSent = 0;
         this.messagesReceived = 0;
         
-        this.connect();
+        // Connection management improvements
+        this.connectionCheckTimeout = null;
+        this.initialConnectionDelay = 2000; // Wait 2 seconds before first connection attempt
+        this.backendReadyChecked = false;
+        
+        // Don't connect immediately - wait for backend readiness
+        this.scheduleInitialConnection();
+    }
+
+    /**
+     * Schedule initial connection after checking backend readiness
+     */
+    scheduleInitialConnection() {
+        console.log('🕐 Scheduling initial WebSocket connection...');
+        
+        // Update connection state
+        if (this.onConnectionStateChange) {
+            this.onConnectionStateChange('waiting');
+        }
+        
+        // Wait before attempting connection to allow backend to fully start
+        this.connectionCheckTimeout = setTimeout(async () => {
+            console.log('⏰ Initial connection delay complete, checking backend readiness...');
+            
+            const isReady = await this.checkBackendReadiness();
+            if (isReady) {
+                console.log('✅ Backend is ready, establishing WebSocket connection...');
+                this.connect();
+            } else {
+                console.warn('⚠️ Backend not ready, scheduling retry...');
+                this.scheduleReconnect();
+            }
+        }, this.initialConnectionDelay);
+    }
+    
+    /**
+     * Check if backend server is ready to accept WebSocket connections
+     */
+    async checkBackendReadiness() {
+        try {
+            console.log('🔍 Checking backend health endpoint...');
+            
+            const healthUrl = `${window.location.protocol}//${window.location.host}/api/health`;
+            const response = await fetch(healthUrl, {
+                method: 'GET',
+                timeout: 5000,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const healthData = await response.json();
+                console.log('✅ Backend health check passed:', healthData);
+                this.backendReadyChecked = true;
+                return true;
+            } else {
+                console.warn(`⚠️ Backend health check failed: ${response.status} ${response.statusText}`);
+                return false;
+            }
+        } catch (error) {
+            console.warn('⚠️ Backend health check error:', error.message);
+            
+            // For certain errors, we might still want to try connecting
+            // (e.g., if health endpoint doesn't exist but WebSocket might work)
+            if (error.message.includes('404')) {
+                console.log('💡 Health endpoint not found, attempting WebSocket connection anyway...');
+                return true;
+            }
+            
+            return false;
+        }
     }
 
     /**
@@ -188,8 +259,15 @@ class WebSocketClient {
         };
 
         this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            this.handleConnectionError('WebSocket接続エラーが発生しました');
+            console.error('❌ WebSocket error event:', error);
+            
+            // Check if this is an immediate connection failure (status 0 error)
+            if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+                console.error('❌ WebSocket failed to connect (immediate failure - status 0)');
+                this.handleConnectionError('サーバーへの接続に失敗しました (接続が即座に拒否されました)');
+            } else {
+                this.handleConnectionError('WebSocket接続エラーが発生しました');
+            }
         };
     }
 
@@ -552,6 +630,12 @@ class WebSocketClient {
         // Stop recording session if active
         if (this.isRecording) {
             this.stopRecording();
+        }
+        
+        // Clear any pending connection timeouts
+        if (this.connectionCheckTimeout) {
+            clearTimeout(this.connectionCheckTimeout);
+            this.connectionCheckTimeout = null;
         }
         
         if (this.ws) {
