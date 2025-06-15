@@ -19,7 +19,7 @@ urllib3.disable_warnings()
 warnings.filterwarnings("ignore", "urllib3*")
 warnings.filterwarnings("ignore", "Unverified HTTPS request*")
 warnings.filterwarnings("ignore", message=".*urllib3.*")
-warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
+#warnings.filterwarnings("ignore", category=urllib3.exceptions.NotOpenSSLWarning)
 
 # Additional SSL configuration for macOS LibreSSL
 try:
