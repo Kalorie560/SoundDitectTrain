@@ -9,12 +9,32 @@ class SimpleModeManager {
         this.currentMode = null;
         this.isTransitioning = false;
         this.elements = {};
+        this.initializationAttempts = 0;
+        this.maxInitAttempts = 5;
         
-        // Initialize after DOM is ready
+        // Initialize after DOM is ready with retry mechanism
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => this.initialize());
+            document.addEventListener('DOMContentLoaded', () => this.initializeWithRetry());
         } else {
-            this.initialize();
+            this.initializeWithRetry();
+        }
+    }
+
+    initializeWithRetry() {
+        this.initializationAttempts++;
+        console.log(`🎯 SimpleModeManager initialization attempt ${this.initializationAttempts}/${this.maxInitAttempts}`);
+        
+        if (this.initialize()) {
+            console.log('✅ SimpleModeManager initialized successfully');
+            return true;
+        } else if (this.initializationAttempts < this.maxInitAttempts) {
+            console.log(`⏳ Retrying initialization in 500ms (attempt ${this.initializationAttempts + 1}/${this.maxInitAttempts})`);
+            setTimeout(() => this.initializeWithRetry(), 500);
+            return false;
+        } else {
+            console.error('❌ SimpleModeManager initialization failed after all attempts');
+            this.createFallbackModeManager();
+            return false;
         }
     }
 
@@ -23,10 +43,18 @@ class SimpleModeManager {
         
         try {
             // Cache all DOM elements with error handling
-            this.cacheElements();
+            const elementsCached = this.cacheElements();
+            if (!elementsCached) {
+                console.warn('⚠️ Element caching failed, will retry');
+                return false;
+            }
             
             // Set up event listeners with error handling
-            this.setupEventListeners();
+            const listenersSetup = this.setupEventListeners();
+            if (!listenersSetup) {
+                console.warn('⚠️ Event listener setup failed, will retry');
+                return false;
+            }
             
             // Show mode selection initially
             this.showModeSelection();
@@ -40,23 +68,26 @@ class SimpleModeManager {
                     'Mode Manager Init',
                     { 
                         elementsFound: Object.keys(this.elements).filter(key => this.elements[key]).length,
-                        totalElements: Object.keys(this.elements).length
+                        totalElements: Object.keys(this.elements).length,
+                        attempts: this.initializationAttempts
                     }
                 );
             }
             
+            return true;
+            
         } catch (error) {
-            console.error('❌ SimpleModeManager initialization failed:', error);
+            console.error(`❌ SimpleModeManager initialization failed (attempt ${this.initializationAttempts}):`, error);
             
             if (window.errorLogger) {
                 window.errorLogger.log(error, 'Mode Manager Init', {
                     domReady: document.readyState,
-                    elementsAttempted: Object.keys(this.elements || {}).length
+                    elementsAttempted: Object.keys(this.elements || {}).length,
+                    attempt: this.initializationAttempts
                 });
             }
             
-            // Create fallback mode manager
-            this.createFallbackModeManager();
+            return false;
         }
     }
 
@@ -68,24 +99,28 @@ class SimpleModeManager {
         
         // Element selectors with fallback descriptions
         const elementSelectors = {
-            // Mode selection elements
+            // Mode selection elements (most critical)
             modeSelectionPanel: { selector: '.mode-selection-panel', type: 'class', required: true },
-            realtimeModeCard: { selector: 'realtimeModeCard', type: 'id', required: false },
-            offlineModeCard: { selector: 'offlineModeCard', type: 'id', required: false },
             selectRealtimeBtn: { selector: 'selectRealtimeMode', type: 'id', required: true },
             selectOfflineBtn: { selector: 'selectOfflineMode', type: 'id', required: true },
             
-            // Interface elements
+            // Interface elements (required for mode switching)
             realtimeInterface: { selector: 'realtimeInterface', type: 'id', required: true },
             offlineInterface: { selector: 'offlineInterface', type: 'id', required: true },
+            
+            // Mode cards (nice to have)
+            realtimeModeCard: { selector: 'realtimeModeCard', type: 'id', required: false },
+            offlineModeCard: { selector: 'offlineModeCard', type: 'id', required: false },
+            
+            // Results areas (optional)
             realtimeResults: { selector: 'realtimeResults', type: 'id', required: false },
             offlineResults: { selector: 'offlineResults', type: 'id', required: false },
             
-            // Back buttons
+            // Back buttons (optional)
             backFromRealtime: { selector: 'backFromRealtime', type: 'id', required: false },
             backFromOffline: { selector: 'backFromOffline', type: 'id', required: false },
             
-            // Other controls
+            // Other controls (optional)
             recordingDuration: { selector: 'recordingDuration', type: 'id', required: false },
             durationValue: { selector: 'durationValue', type: 'id', required: false },
             offlineStartButtonText: { selector: 'offlineStartButtonText', type: 'id', required: false }
@@ -126,10 +161,10 @@ class SimpleModeManager {
         
         console.log(`📊 Cached ${foundElements}/${Object.keys(elementSelectors).length} elements`);
         
-        // Check for missing required elements but be more lenient
+        // Check for critical missing elements
         if (missingRequired.length > 0) {
             console.warn(`⚠️ Missing required elements: ${missingRequired.join(', ')}`);
-            console.warn('📝 Continuing with fallback mode for better error recovery');
+            console.warn('📝 Cannot continue without critical elements');
             
             if (window.errorLogger) {
                 window.errorLogger.log(new Error(`Missing required elements: ${missingRequired.join(', ')}`), 'Mode Manager Required Elements', {
@@ -137,13 +172,15 @@ class SimpleModeManager {
                     foundElements,
                     totalElements: Object.keys(elementSelectors).length,
                     domReady: document.readyState,
-                    recoveryMode: true
+                    canRetry: true
                 });
             }
             
-            // Don't throw error, let it continue with fallback mode
-            // throw error;
+            return false; // Return false to indicate failure
         }
+        
+        // Success if we have all required elements
+        return true;
     }
     
     /**
@@ -200,80 +237,130 @@ class SimpleModeManager {
     setupEventListeners() {
         console.log('🔧 Setting up event listeners...');
         
-        // Mode selection buttons
+        let criticalListenersSetup = 0;
+        
+        // Mode selection buttons (critical)
         if (this.elements.selectRealtimeBtn) {
-            console.log('✅ Setting up real-time button event listener');
-            this.elements.selectRealtimeBtn.addEventListener('click', (e) => {
-                console.log('🎯 Real-time mode button clicked');
-                this.selectMode('realtime', e.target);
-            });
+            try {
+                console.log('✅ Setting up real-time button event listener');
+                this.elements.selectRealtimeBtn.addEventListener('click', (e) => {
+                    console.log('🎯 Real-time mode button clicked');
+                    this.selectMode('realtime', e.target);
+                });
+                criticalListenersSetup++;
+            } catch (error) {
+                console.error('❌ Error setting up real-time button listener:', error);
+                return false;
+            }
         } else {
             console.error('❌ Real-time button not found, cannot set up event listener');
+            return false;
         }
 
         if (this.elements.selectOfflineBtn) {
-            console.log('✅ Setting up offline button event listener');
-            this.elements.selectOfflineBtn.addEventListener('click', (e) => {
-                console.log('🎯 Offline mode button clicked');
-                this.selectMode('offline', e.target);
-            });
+            try {
+                console.log('✅ Setting up offline button event listener');
+                this.elements.selectOfflineBtn.addEventListener('click', (e) => {
+                    console.log('🎯 Offline mode button clicked');
+                    this.selectMode('offline', e.target);
+                });
+                criticalListenersSetup++;
+            } catch (error) {
+                console.error('❌ Error setting up offline button listener:', error);
+                return false;
+            }
         } else {
             console.error('❌ Offline button not found, cannot set up event listener');
+            return false;
         }
 
-        // Back buttons
+        // Back buttons (optional but important)
         if (this.elements.backFromRealtime) {
-            this.elements.backFromRealtime.addEventListener('click', () => {
-                console.log('🔙 Back from real-time clicked');
-                this.showModeSelection();
-            });
+            try {
+                this.elements.backFromRealtime.addEventListener('click', () => {
+                    console.log('🔙 Back from real-time clicked');
+                    this.showModeSelection();
+                });
+                console.log('✅ Back from real-time button listener setup');
+            } catch (error) {
+                console.warn('⚠️ Error setting up back from real-time listener:', error);
+            }
         }
 
         if (this.elements.backFromOffline) {
-            this.elements.backFromOffline.addEventListener('click', () => {
-                console.log('🔙 Back from offline clicked');
-                this.showModeSelection();
-            });
+            try {
+                this.elements.backFromOffline.addEventListener('click', () => {
+                    console.log('🔙 Back from offline clicked');
+                    this.showModeSelection();
+                });
+                console.log('✅ Back from offline button listener setup');
+            } catch (error) {
+                console.warn('⚠️ Error setting up back from offline listener:', error);
+            }
         }
 
-        // Duration slider
+        // Duration slider (optional)
         if (this.elements.recordingDuration && this.elements.durationValue) {
-            this.elements.recordingDuration.addEventListener('input', (e) => {
-                const duration = parseInt(e.target.value);
-                this.elements.durationValue.textContent = duration;
-                
-                if (this.elements.offlineStartButtonText) {
-                    this.elements.offlineStartButtonText.textContent = `録音開始 (${duration}秒)`;
-                }
-                
-                // Update app recording duration if available
-                if (window.app) {
-                    window.app.recordingDuration = duration;
-                }
-            });
+            try {
+                this.elements.recordingDuration.addEventListener('input', (e) => {
+                    const duration = parseInt(e.target.value);
+                    this.elements.durationValue.textContent = duration;
+                    
+                    if (this.elements.offlineStartButtonText) {
+                        this.elements.offlineStartButtonText.textContent = `録音開始 (${duration}秒)`;
+                    }
+                    
+                    // Update app recording duration if available
+                    if (window.app) {
+                        window.app.recordingDuration = duration;
+                    }
+                });
+                console.log('✅ Duration slider listener setup');
+            } catch (error) {
+                console.warn('⚠️ Error setting up duration slider listener:', error);
+            }
         }
         
-        // Offline mode recording buttons
+        // Offline mode recording buttons (optional)
         const offlineStartBtn = document.getElementById('offlineStartButton');
         const offlineStopBtn = document.getElementById('offlineStopButton');
         
         if (offlineStartBtn) {
-            offlineStartBtn.addEventListener('click', async () => {
-                console.log('🎯 Offline start button clicked');
-                if (window.app) {
-                    const success = await window.app.startRecording();
-                    console.log(`🎯 Offline recording start result: ${success}`);
-                }
-            });
+            try {
+                offlineStartBtn.addEventListener('click', async () => {
+                    console.log('🎯 Offline start button clicked');
+                    if (window.app) {
+                        const success = await window.app.startRecording();
+                        console.log(`🎯 Offline recording start result: ${success}`);
+                    }
+                });
+                console.log('✅ Offline start button listener setup');
+            } catch (error) {
+                console.warn('⚠️ Error setting up offline start listener:', error);
+            }
         }
         
         if (offlineStopBtn) {
-            offlineStopBtn.addEventListener('click', () => {
-                console.log('🎯 Offline stop button clicked');
-                if (window.app) {
-                    window.app.stopRecording();
-                }
-            });
+            try {
+                offlineStopBtn.addEventListener('click', () => {
+                    console.log('🎯 Offline stop button clicked');
+                    if (window.app) {
+                        window.app.stopRecording();
+                    }
+                });
+                console.log('✅ Offline stop button listener setup');
+            } catch (error) {
+                console.warn('⚠️ Error setting up offline stop listener:', error);
+            }
+        }
+        
+        // Check if critical listeners were setup (need both mode selection buttons)
+        if (criticalListenersSetup >= 2) {
+            console.log(`✅ Event listeners setup complete (${criticalListenersSetup}/2 critical listeners)`);
+            return true;
+        } else {
+            console.error(`❌ Event listeners setup failed (${criticalListenersSetup}/2 critical listeners)`);
+            return false;
         }
     }
 
