@@ -30,17 +30,7 @@ except AttributeError:
     pass
 
 # Configure global session defaults to prevent excessive retries
-try:
-    # Set more aggressive defaults for requests/urllib3
-    requests.sessions.Session.request = lambda self, *args, **kwargs: (
-        super(requests.sessions.Session, self).request(
-            *args, 
-            timeout=kwargs.get('timeout', 10),
-            **kwargs
-        )
-    )
-except:
-    pass
+# Note: Removed problematic monkey-patch that caused AttributeError with super().request
 
 import torch
 import torch.nn as nn
