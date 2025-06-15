@@ -549,13 +549,36 @@ class ModelManager:
                     self.task.upload_artifact("best_model", artifact_object=str(model_file))
                     logger.info("📤 Model uploaded to ClearML as artifact")
                     
-                    # Also register as output model
-                    output_model = torch.jit.script(self.model.cpu())
-                    output_model.save(str(model_path / "best_model_traced.pth"))
-                    self.task.upload_artifact("traced_model", artifact_object=str(model_path / "best_model_traced.pth"))
-                    
-                    # Move model back to device
-                    self.model.to(self.device)
+                    # Try to create TorchScript traced model (fallback if script fails)
+                    try:
+                        # Create a sample input for tracing
+                        sample_input = torch.randn(1, self.config['model']['input_length']).to(self.device)
+                        
+                        # Try tracing first (more robust than scripting)
+                        traced_model = torch.jit.trace(self.model, sample_input)
+                        traced_model_path = model_path / "best_model_traced.pth"
+                        traced_model.save(str(traced_model_path))
+                        self.task.upload_artifact("traced_model", artifact_object=str(traced_model_path))
+                        logger.info("📤 TorchScript traced model uploaded to ClearML")
+                        
+                    except Exception as trace_error:
+                        logger.warning(f"TorchScript tracing failed: {trace_error}")
+                        
+                        # Fallback: try scripting with model on CPU
+                        try:
+                            cpu_model = self.model.cpu()
+                            scripted_model = torch.jit.script(cpu_model)
+                            scripted_model_path = model_path / "best_model_scripted.pth"
+                            scripted_model.save(str(scripted_model_path))
+                            self.task.upload_artifact("scripted_model", artifact_object=str(scripted_model_path))
+                            logger.info("📤 TorchScript scripted model uploaded to ClearML")
+                            
+                            # Move model back to device
+                            self.model.to(self.device)
+                            
+                        except Exception as script_error:
+                            logger.warning(f"TorchScript scripting also failed: {script_error}")
+                            logger.info("📤 Regular PyTorch model uploaded successfully (TorchScript conversion skipped)")
                     
                 except Exception as e:
                     logger.warning(f"ClearML model upload failed: {e}")
