@@ -138,7 +138,7 @@ def verify_setup():
         
         # Try to create a test task
         task = Task.init(
-            project_name="SoundDitect-Test",
+            project_name="SoundDitect",
             task_name="setup_verification",
             output_uri=False
         )
