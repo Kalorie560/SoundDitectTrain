@@ -334,53 +334,7 @@ class ModelManager:
             self.clearml_enabled = False
             return
         
-        # Set up connection timeout and retry configuration
-        import socket
-        import requests
-        from requests.adapters import HTTPAdapter
-        from requests.packages.urllib3.util.retry import Retry
-        
-        # Configure more aggressive timeout for ClearML connections
-        original_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(10)  # 10 second timeout
-        
         try:
-            # Test connectivity to ClearML servers first
-            test_urls = [
-                'https://api.clear.ml',
-                'https://app.clear.ml',
-                'https://files.clear.ml'
-            ]
-            
-            session = requests.Session()
-            # Configure aggressive retry strategy with shorter delays
-            retry_strategy = Retry(
-                total=2,  # Reduced from default
-                connect=2,
-                read=2,
-                status_forcelist=[429, 500, 502, 503, 504],
-                backoff_factor=0.5  # Faster backoff
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
-            
-            # Test connection to at least one ClearML server
-            connection_ok = False
-            for url in test_urls:
-                try:
-                    response = session.head(url, timeout=5)
-                    if response.status_code < 500:
-                        connection_ok = True
-                        break
-                except:
-                    continue
-            
-            if not connection_ok:
-                logger.warning("🌐 ClearML servers unreachable during initialization - will retry during training")
-                self.clearml_connection_disabled = True
-                # Continue with ClearML initialization anyway - it may work during training
-            
             # Initialize ClearML task with configuration from config.yaml
             clearml_config = self.config.get('clearml', {})
             project_name = clearml_config.get('project_name', 'SoundDitect')
@@ -389,6 +343,8 @@ class ModelManager:
             
             # Set environment variable to reduce ClearML retry attempts
             os.environ['CLEARML_LOG_LEVEL'] = 'WARNING'
+            
+            logger.info(f"🔄 Initializing ClearML: {project_name}/{task_name}")
             
             self.task = Task.init(
                 project_name=project_name,
@@ -406,50 +362,29 @@ class ModelManager:
             if self.task:
                 self.task.set_parameters(self.config)
             
+            # ClearML initialized successfully - enable it immediately
             self.clearml_enabled = True
-            logger.info(f"✅ ClearML initialized: {project_name}/{task_name}")
+            self.clearml_connection_disabled = False  # Reset connection flag
+            self.clearml_retry_count = 0  # Reset retry count
+            
+            logger.info(f"✅ ClearML initialized successfully: {project_name}/{task_name}")
             logger.info(f"🔗 ClearML dashboard: {self.task.get_output_log_web_page()}" if self.task else "")
             
         except Exception as e:
-            logger.warning(f"⚠️ ClearML initialization failed: {e}")
-            logger.info("🔄 Will retry ClearML connection during training")
-            self.clearml_connection_disabled = True
-            # Try to initialize without connection test
-            try:
-                self.task = Task.init(
-                    project_name=project_name,
-                    task_name=task_name,
-                    output_uri=output_uri
-                )
-                self.task.connect(self.config)
-                self.clearml_logger = Logger.current_logger()
-                if self.task:
-                    self.task.set_parameters(self.config)
+            logger.warning(f"⚠️ ClearML initialization error: {e}")
+            logger.info("🔄 ClearML will operate in resilient mode - attempting to connect during training")
+            
+            # Don't disable ClearML completely - just mark as potentially having connection issues
+            self.clearml_connection_disabled = False  # Allow attempts during training
+            self.clearml_retry_count = 0
+            
+            # Keep task reference if it was created, even if there were connection issues
+            if hasattr(self, 'task') and self.task:
                 self.clearml_enabled = True
-                logger.info(f"✅ ClearML initialized offline: {project_name}/{task_name}")
-            except:
-                self.task = None
-                self.clearml_enabled = False
-        finally:
-            # Restore original timeout
-            socket.setdefaulttimeout(original_timeout)
-    
-    def _try_reenable_clearml(self):
-        """Try to re-enable ClearML if it was disabled due to connection issues."""
-        if not self.clearml_connection_disabled or not CLEARML_AVAILABLE:
-            return
-        
-        try:
-            # Quick connection test
-            import requests
-            response = requests.head('https://api.clear.ml', timeout=5)
-            if response.status_code < 500:
-                logger.info("🔄 ClearML connection restored - re-enabling logging")
-                self.clearml_connection_disabled = False
-                self.clearml_retry_count = 0
-                
-                # Re-initialize ClearML task if needed
-                if not self.task:
+                logger.info("✅ ClearML task object available - will attempt logging during training")
+            else:
+                # Try a minimal initialization
+                try:
                     clearml_config = self.config.get('clearml', {})
                     project_name = clearml_config.get('project_name', 'SoundDitect')
                     task_name = clearml_config.get('task_name', 'anomaly_detection_training')
@@ -462,13 +397,52 @@ class ModelManager:
                     )
                     self.task.connect(self.config)
                     self.clearml_logger = Logger.current_logger()
-                    if self.task:
-                        self.task.set_parameters(self.config)
-                    
-                    logger.info(f"✅ ClearML task re-initialized: {project_name}/{task_name}")
-        except:
-            # Connection still not available, increment retry count
-            self.clearml_retry_count += 1
+                    self.clearml_enabled = True
+                    logger.info("✅ ClearML minimal initialization successful")
+                except Exception as init_error:
+                    logger.warning(f"⚠️ ClearML minimal initialization also failed: {init_error}")
+                    self.task = None
+                    self.clearml_enabled = False
+    
+    def _try_reenable_clearml(self):
+        """Try to re-enable ClearML if it was disabled due to connection issues."""
+        if not CLEARML_AVAILABLE:
+            return
+            
+        # Always try to reconnect if we have a task object
+        if self.task:
+            logger.debug("🔄 Attempting to restore ClearML connection")
+            self.clearml_connection_disabled = False
+            return
+        
+        # If no task object, try to create one
+        try:
+            logger.debug("🔄 Attempting to re-initialize ClearML task")
+            
+            clearml_config = self.config.get('clearml', {})
+            project_name = clearml_config.get('project_name', 'SoundDitect')
+            task_name = clearml_config.get('task_name', 'anomaly_detection_training')
+            output_uri = clearml_config.get('output_uri', None)
+            
+            self.task = Task.init(
+                project_name=project_name,
+                task_name=task_name,
+                output_uri=output_uri
+            )
+            self.task.connect(self.config)
+            self.clearml_logger = Logger.current_logger()
+            if self.task:
+                self.task.set_parameters(self.config)
+            
+            self.clearml_enabled = True
+            self.clearml_connection_disabled = False
+            self.clearml_retry_count = 0
+            
+            logger.info(f"✅ ClearML task re-initialized successfully: {project_name}/{task_name}")
+            
+        except Exception as e:
+            logger.debug(f"⚠️ ClearML re-initialization failed: {e}")
+            # Don't increment retry count here - let _safe_clearml_operation handle it
     
     def _safe_clearml_operation(self, operation_func, operation_name="ClearML operation", *args, **kwargs):
         """
@@ -484,32 +458,39 @@ class ModelManager:
         """
         if not self.clearml_enabled or not self.task:
             # Try to re-enable ClearML if it was disabled due to connection issues
-            if self.clearml_connection_disabled and self.clearml_retry_count < 3:
+            if self.clearml_connection_disabled and self.clearml_retry_count < 10:
                 self._try_reenable_clearml()
-            return None
+            if not self.clearml_enabled or not self.task:
+                return None
         
         try:
             result = operation_func(*args, **kwargs)
             # If operation succeeded, reset retry count and connection disabled flag
-            if self.clearml_connection_disabled:
-                logger.info("✅ ClearML connection restored successfully")
+            if self.clearml_connection_disabled or self.clearml_retry_count > 0:
+                logger.debug(f"✅ ClearML {operation_name} successful - connection restored")
                 self.clearml_connection_disabled = False
                 self.clearml_retry_count = 0
             return result
         except Exception as e:
             # Check if it's a connection error
             error_str = str(e).lower()
-            if any(keyword in error_str for keyword in ['connection', 'network', 'timeout', 'dns', 'nodename']):
-                logger.debug(f"🌐 ClearML connection error during {operation_name} - will retry later")
+            if any(keyword in error_str for keyword in ['connection', 'network', 'timeout', 'dns', 'nodename', 'unreachable']):
+                logger.debug(f"🌐 ClearML connection issue during {operation_name}: {e}")
                 self.clearml_connection_disabled = True
                 self.clearml_retry_count += 1
-                # Only disable ClearML entirely after multiple failures
-                if self.clearml_retry_count >= 5:
-                    logger.warning(f"🚫 ClearML permanently disabled after {self.clearml_retry_count} connection failures")
+                
+                # Only disable ClearML entirely after many failures (increased threshold)
+                if self.clearml_retry_count >= 15:
+                    logger.warning(f"🚫 ClearML disabled after {self.clearml_retry_count} consecutive connection failures")
+                    logger.info("💡 Training will continue in local-only mode")
                     self.clearml_enabled = False
                     self.task = None
+                else:
+                    logger.debug(f"🔄 ClearML retry attempt {self.clearml_retry_count}/15 - will keep trying")
             else:
-                logger.debug(f"⚠️ ClearML {operation_name} failed: {e}")
+                # Non-connection error - just log and continue
+                logger.debug(f"⚠️ ClearML {operation_name} error (non-connection): {e}")
+                # Don't increment retry count for non-connection errors
             return None
 
     def create_model(self) -> SoundAnomalyDetector:
@@ -712,11 +693,14 @@ class ModelManager:
             logger.info(f"Model saved to {model_path}")
             
             # Upload model to ClearML safely
-            if self._safe_clearml_operation(
+            model_uploaded = self._safe_clearml_operation(
                 lambda: self.task.upload_artifact("best_model", artifact_object=str(model_file)),
                 "model artifact upload"
-            ):
-                logger.info("📤 Model uploaded to ClearML as artifact")
+            )
+            if model_uploaded:
+                logger.info("✅ Model uploaded to ClearML as artifact")
+            else:
+                logger.info("💾 Model saved locally (ClearML upload pending)")
                 
                 # Try to create TorchScript traced model (fallback if script fails)
                 try:
@@ -732,7 +716,9 @@ class ModelManager:
                         lambda: self.task.upload_artifact("traced_model", artifact_object=str(traced_model_path)),
                         "traced model artifact upload"
                     ):
-                        logger.info("📤 TorchScript traced model uploaded to ClearML")
+                        logger.info("✅ TorchScript traced model uploaded to ClearML")
+                    else:
+                        logger.info("💾 TorchScript traced model saved locally (ClearML upload pending)")
                     
                 except Exception as trace_error:
                     logger.warning(f"TorchScript tracing failed: {trace_error}")
@@ -748,14 +734,16 @@ class ModelManager:
                             lambda: self.task.upload_artifact("scripted_model", artifact_object=str(scripted_model_path)),
                             "scripted model artifact upload"
                         ):
-                            logger.info("📤 TorchScript scripted model uploaded to ClearML")
+                            logger.info("✅ TorchScript scripted model uploaded to ClearML")
+                        else:
+                            logger.info("💾 TorchScript scripted model saved locally (ClearML upload pending)")
                         
                         # Move model back to device
                         self.model.to(self.device)
                         
                     except Exception as script_error:
                         logger.warning(f"TorchScript scripting also failed: {script_error}")
-                        logger.info("📤 Regular PyTorch model uploaded successfully (TorchScript conversion skipped)")
+                        logger.info("✅ Regular PyTorch model uploaded successfully (TorchScript conversion skipped)")
             
         except Exception as e:
             logger.error(f"Error saving model: {e}")
@@ -898,29 +886,38 @@ class ModelManager:
                 return False
             
             # Log dataset information to ClearML safely
-            self._safe_clearml_operation(
+            dataset_logged = False
+            if self._safe_clearml_operation(
                 lambda: self.task.set_parameter("dataset/train_samples", len(train_loader.dataset)),
                 "dataset train samples logging"
-            )
-            self._safe_clearml_operation(
+            ):
+                dataset_logged = True
+                
+            if self._safe_clearml_operation(
                 lambda: self.task.set_parameter("dataset/val_samples", len(val_loader.dataset) if val_loader else 0),
                 "dataset validation samples logging"
-            )
-            self._safe_clearml_operation(
+            ):
+                dataset_logged = True
+                
+            if self._safe_clearml_operation(
                 lambda: self.task.set_parameter("dataset/batch_size", self.config['training']['batch_size']),
                 "dataset batch size logging"
-            )
+            ):
+                dataset_logged = True
             
             # Log data files being used
             data_dir = Path(self.config['data']['data_dir'])
             data_files = list(data_dir.glob("*.json"))
-            self._safe_clearml_operation(
+            if self._safe_clearml_operation(
                 lambda: self.task.set_parameter("dataset/data_files", [f.name for f in data_files]),
                 "dataset files logging"
-            )
+            ):
+                dataset_logged = True
             
-            if self.clearml_enabled:
-                logger.info("📊 Dataset information logged to ClearML")
+            if dataset_logged:
+                logger.info("✅ Dataset information successfully logged to ClearML")
+            else:
+                logger.info("📊 Dataset information logged locally (ClearML connection pending)")
             
             # Create model
             self.model = self.create_model()
@@ -945,21 +942,30 @@ class ModelManager:
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
                 
                 # Log metrics to ClearML safely
-                self._safe_clearml_operation(
+                metrics_logged = False
+                if self._safe_clearml_operation(
                     lambda: self.clearml_logger.report_scalar("Training", "Loss", iteration=epoch, value=train_loss),
                     "training loss logging"
-                )
-                self._safe_clearml_operation(
+                ):
+                    metrics_logged = True
+                    
+                if self._safe_clearml_operation(
                     lambda: self.clearml_logger.report_scalar("Validation", "Loss", iteration=epoch, value=val_loss),
                     "validation loss logging"
-                )
-                self._safe_clearml_operation(
+                ):
+                    metrics_logged = True
+                    
+                if self._safe_clearml_operation(
                     lambda: self.clearml_logger.report_scalar("Validation", "Accuracy", iteration=epoch, value=val_acc),
                     "validation accuracy logging"
-                )
+                ):
+                    metrics_logged = True
                 
-                # Also log locally
-                logger.info(f"📊 Training metrics - Epoch {epoch}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
+                # Log both locally and ClearML status
+                if metrics_logged:
+                    logger.info(f"✅ Epoch {epoch}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f} (ClearML logged)")
+                else:
+                    logger.info(f"📊 Epoch {epoch}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f} (local only)")
                 
                 logger.info(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, Val Acc={val_acc:.4f}")
                 
@@ -979,7 +985,9 @@ class ModelManager:
                 lambda: self.task.mark_completed(),
                 "task completion"
             ):
-                logger.info("✅ ClearML task marked as completed")
+                logger.info("✅ ClearML task marked as completed successfully")
+            else:
+                logger.info("📊 Training completed (ClearML completion pending)")
             
             logger.info("Training completed")
             return True
@@ -1084,14 +1092,21 @@ class ModelManager:
                 
                 # Log to ClearML safely (less frequent batch logging)
                 if batch_idx % max(1, len(train_loader) // 5) == 0:
-                    self._safe_clearml_operation(
+                    batch_logged = False
+                    if self._safe_clearml_operation(
                         lambda: self.clearml_logger.report_scalar("Training", "Batch Loss", iteration=global_iteration, value=loss.item()),
                         "batch loss logging"
-                    )
-                    self._safe_clearml_operation(
+                    ):
+                        batch_logged = True
+                        
+                    if self._safe_clearml_operation(
                         lambda: self.clearml_logger.report_scalar("Training", "Learning Rate", iteration=global_iteration, value=optimizer.param_groups[0]['lr']),
                         "learning rate logging"
-                    )
+                    ):
+                        batch_logged = True
+                        
+                    if batch_logged:
+                        logger.debug(f"✅ Batch {batch_idx} metrics logged to ClearML")
             
             # Allow other coroutines to run
             if batch_idx % 10 == 0:
