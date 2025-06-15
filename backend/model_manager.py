@@ -317,6 +317,8 @@ class ModelManager:
         self.model = None
         self.task = None
         self.clearml_enabled = False  # Initialize ClearML status flag
+        self.clearml_connection_disabled = False  # Track if disabled due to connection issues
+        self.clearml_retry_count = 0  # Track retry attempts
         self.prediction_count = 0
         
         logger.info(f"Using device: {self.device}")
@@ -375,10 +377,9 @@ class ModelManager:
                     continue
             
             if not connection_ok:
-                logger.warning("🌐 ClearML servers unreachable - switching to local-only mode")
-                self.task = None
-                self.clearml_enabled = False
-                return
+                logger.warning("🌐 ClearML servers unreachable during initialization - will retry during training")
+                self.clearml_connection_disabled = True
+                # Continue with ClearML initialization anyway - it may work during training
             
             # Initialize ClearML task with configuration from config.yaml
             clearml_config = self.config.get('clearml', {})
@@ -411,16 +412,67 @@ class ModelManager:
             
         except Exception as e:
             logger.warning(f"⚠️ ClearML initialization failed: {e}")
-            logger.info("🔄 Continuing with local-only mode")
-            self.task = None
-            self.clearml_enabled = False
+            logger.info("🔄 Will retry ClearML connection during training")
+            self.clearml_connection_disabled = True
+            # Try to initialize without connection test
+            try:
+                self.task = Task.init(
+                    project_name=project_name,
+                    task_name=task_name,
+                    output_uri=output_uri
+                )
+                self.task.connect(self.config)
+                self.clearml_logger = Logger.current_logger()
+                if self.task:
+                    self.task.set_parameters(self.config)
+                self.clearml_enabled = True
+                logger.info(f"✅ ClearML initialized offline: {project_name}/{task_name}")
+            except:
+                self.task = None
+                self.clearml_enabled = False
         finally:
             # Restore original timeout
             socket.setdefaulttimeout(original_timeout)
     
+    def _try_reenable_clearml(self):
+        """Try to re-enable ClearML if it was disabled due to connection issues."""
+        if not self.clearml_connection_disabled or not CLEARML_AVAILABLE:
+            return
+        
+        try:
+            # Quick connection test
+            import requests
+            response = requests.head('https://api.clear.ml', timeout=5)
+            if response.status_code < 500:
+                logger.info("🔄 ClearML connection restored - re-enabling logging")
+                self.clearml_connection_disabled = False
+                self.clearml_retry_count = 0
+                
+                # Re-initialize ClearML task if needed
+                if not self.task:
+                    clearml_config = self.config.get('clearml', {})
+                    project_name = clearml_config.get('project_name', 'SoundDitect')
+                    task_name = clearml_config.get('task_name', 'anomaly_detection_training')
+                    output_uri = clearml_config.get('output_uri', None)
+                    
+                    self.task = Task.init(
+                        project_name=project_name,
+                        task_name=task_name,
+                        output_uri=output_uri
+                    )
+                    self.task.connect(self.config)
+                    self.clearml_logger = Logger.current_logger()
+                    if self.task:
+                        self.task.set_parameters(self.config)
+                    
+                    logger.info(f"✅ ClearML task re-initialized: {project_name}/{task_name}")
+        except:
+            # Connection still not available, increment retry count
+            self.clearml_retry_count += 1
+    
     def _safe_clearml_operation(self, operation_func, operation_name="ClearML operation", *args, **kwargs):
         """
-        Safely execute a ClearML operation with connection health checking.
+        Safely execute a ClearML operation with connection health checking and retry logic.
         
         Args:
             operation_func: The ClearML function to execute
@@ -431,17 +483,31 @@ class ModelManager:
             The result of the operation or None if failed/disabled
         """
         if not self.clearml_enabled or not self.task:
+            # Try to re-enable ClearML if it was disabled due to connection issues
+            if self.clearml_connection_disabled and self.clearml_retry_count < 3:
+                self._try_reenable_clearml()
             return None
         
         try:
-            return operation_func(*args, **kwargs)
+            result = operation_func(*args, **kwargs)
+            # If operation succeeded, reset retry count and connection disabled flag
+            if self.clearml_connection_disabled:
+                logger.info("✅ ClearML connection restored successfully")
+                self.clearml_connection_disabled = False
+                self.clearml_retry_count = 0
+            return result
         except Exception as e:
             # Check if it's a connection error
             error_str = str(e).lower()
             if any(keyword in error_str for keyword in ['connection', 'network', 'timeout', 'dns', 'nodename']):
-                logger.warning(f"🌐 ClearML connection error during {operation_name} - disabling ClearML")
-                self.clearml_enabled = False
-                self.task = None
+                logger.debug(f"🌐 ClearML connection error during {operation_name} - will retry later")
+                self.clearml_connection_disabled = True
+                self.clearml_retry_count += 1
+                # Only disable ClearML entirely after multiple failures
+                if self.clearml_retry_count >= 5:
+                    logger.warning(f"🚫 ClearML permanently disabled after {self.clearml_retry_count} connection failures")
+                    self.clearml_enabled = False
+                    self.task = None
             else:
                 logger.debug(f"⚠️ ClearML {operation_name} failed: {e}")
             return None
