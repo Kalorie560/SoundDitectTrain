@@ -33,6 +33,7 @@ from pathlib import Path
 import logging
 import asyncio
 import json
+import copy
 from typing import Tuple, Optional, Dict, Any
 import time
 # ClearML removed for run_server.py stability
@@ -314,7 +315,7 @@ class ModelManager:
     
     async def load_model(self, model_path: Optional[str] = None) -> bool:
         """
-        Load a trained model from disk, with fallback to creating a simple baseline model.
+        Load a trained model from disk, with automatic architecture detection.
         
         Args:
             model_path: Path to the model file
@@ -331,13 +332,25 @@ class ModelManager:
             # Try to load existing trained model
             if model_path.exists():
                 try:
-                    self.model = self.create_model()
+                    # First, inspect the checkpoint to detect architecture
+                    logger.info(f"🔍 Inspecting checkpoint at {model_path}")
+                    saved_config = self._detect_model_architecture(model_path)
+                    
+                    if saved_config:
+                        logger.info("🔧 Creating model with detected architecture from checkpoint")
+                        self.model = SoundAnomalyDetector(saved_config).to(self.device)
+                    else:
+                        logger.info("📋 Using default configuration for model creation")
+                        self.model = self.create_model()
+                    
+                    # Load the state dict
                     state_dict = torch.load(model_path, map_location=self.device)
                     self.model.load_state_dict(state_dict)
                     self.model.eval()
                     
-                    logger.info(f"✅ Trained model loaded from {model_path}")
+                    logger.info(f"✅ Trained model loaded successfully from {model_path}")
                     return True
+                    
                 except Exception as load_error:
                     logger.error(f"❌ Error loading trained model: {load_error}")
             
@@ -358,6 +371,107 @@ class ModelManager:
         except Exception as e:
             logger.error(f"❌ Critical error in model loading: {e}")
             return False
+    
+    def _detect_model_architecture(self, model_path: Path) -> Optional[dict]:
+        """
+        Detect model architecture from saved checkpoint by inspecting layer dimensions.
+        
+        Args:
+            model_path: Path to the saved model checkpoint
+            
+        Returns:
+            Modified config dict with detected architecture, or None if detection fails
+        """
+        try:
+            # Load checkpoint to inspect architecture
+            checkpoint = torch.load(model_path, map_location='cpu')
+            
+            # Extract CNN layer information from state dict
+            cnn_layers = []
+            
+            # Analyze CNN layers by looking at weight shapes
+            layer_idx = 0
+            while f'cnn.{layer_idx}.weight' in checkpoint:
+                weight_shape = checkpoint[f'cnn.{layer_idx}.weight'].shape
+                
+                # CNN layer pattern: weight shape is [out_channels, in_channels, kernel_size]
+                if len(weight_shape) == 3:
+                    filters = weight_shape[0]
+                    in_channels = weight_shape[1]
+                    kernel_size = weight_shape[2]
+                    
+                    # Infer stride and padding from layer pattern (typical values)
+                    stride = 2 if layer_idx > 0 else 1  # First layer usually stride=1, others stride=2
+                    padding = 1 if kernel_size == 3 else 0
+                    
+                    cnn_layers.append({
+                        'filters': int(filters),
+                        'kernel_size': int(kernel_size),
+                        'stride': stride,
+                        'padding': padding
+                    })
+                    
+                    logger.info(f"   Layer {layer_idx//4}: {filters} filters, kernel {kernel_size}")
+                
+                # Skip to next CNN layer (each layer has weight, bias, batch_norm weight, batch_norm bias)
+                layer_idx += 4
+            
+            if not cnn_layers:
+                logger.warning("Could not detect CNN layer architecture from checkpoint")
+                return None
+            
+            # Detect attention layer dimensions
+            attention_hidden_dim = 256  # Default
+            attention_num_heads = 8     # Default
+            
+            # Look for attention layer weights to detect hidden_dim
+            if 'attention.query.weight' in checkpoint:
+                attention_weight_shape = checkpoint['attention.query.weight'].shape
+                attention_hidden_dim = attention_weight_shape[0]
+                logger.info(f"   Attention hidden_dim: {attention_hidden_dim}")
+            
+            # Detect fully connected layer dimensions
+            fc_layers = []
+            fc_idx = 0
+            while f'classifier.{fc_idx}.weight' in checkpoint:
+                weight_shape = checkpoint[f'classifier.{fc_idx}.weight'].shape
+                
+                if len(weight_shape) == 2:  # Linear layer
+                    out_features = weight_shape[0]
+                    in_features = weight_shape[1]
+                    
+                    # Skip the final output layer (num_classes)
+                    next_fc_idx = fc_idx + 3  # Skip ReLU and Dropout
+                    if f'classifier.{next_fc_idx}.weight' in checkpoint:
+                        fc_layers.append({
+                            'units': int(out_features),
+                            'dropout': 0.3  # Default dropout
+                        })
+                        logger.info(f"   FC Layer {len(fc_layers)}: {out_features} units")
+                
+                fc_idx += 3  # Skip ReLU and Dropout layers
+            
+            # Create modified config with detected architecture
+            detected_config = copy.deepcopy(self.config)  # Deep copy original config
+            
+            # Update with detected values
+            detected_config['model']['cnn_layers'] = cnn_layers
+            detected_config['model']['attention']['hidden_dim'] = attention_hidden_dim
+            detected_config['model']['attention']['num_heads'] = attention_num_heads
+            
+            if fc_layers:
+                detected_config['model']['fully_connected'] = fc_layers
+            
+            logger.info(f"✅ Successfully detected model architecture:")
+            logger.info(f"   CNN layers: {len(cnn_layers)} layers with filters {[l['filters'] for l in cnn_layers]}")
+            logger.info(f"   Attention: {attention_hidden_dim}D hidden, {attention_num_heads} heads")
+            logger.info(f"   FC layers: {len(fc_layers)} layers")
+            
+            return detected_config
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Could not detect model architecture: {e}")
+            return None
     
     def _initialize_baseline_model(self):
         """Initialize model with baseline weights for basic functionality."""
