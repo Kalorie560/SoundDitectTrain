@@ -21,6 +21,8 @@ SoundDitectは、JSONデータファイルから音声異常検知AIモデルを
 
 ### 1. 環境準備
 
+#### ローカル環境での実行
+
 ```bash
 # リポジトリをクローン
 git clone https://github.com/Kalorie560/SoundDitect.git
@@ -36,6 +38,32 @@ pip install --upgrade pip
 # 依存関係をインストール
 pip install -r requirements.txt
 ```
+
+#### Google Colab での実行（推奨）
+
+Google Colab T4 GPU を使用することで、高速かつ効率的な学習が可能です：
+
+```python
+# Colab セルで実行
+!git clone https://github.com/Kalorie560/SoundDitectTrain.git
+%cd SoundDitectTrain
+
+# 依存関係のインストール
+!pip install -r requirements.txt
+
+# Colab用追加ライブラリ
+!pip install nest-asyncio
+
+# Colab最適化設定ファイルを確認
+!ls config_colab.yaml
+```
+
+**Colab 専用最適化機能:**
+- 🎮 T4 GPU メモリ効率化（16GB VRAM最適化）
+- 💾 システムメモリ制限（12-13GB RAM対応）
+- ⚡ 混合精度学習による高速化
+- 🔧 カーネルサイズ63対応の最適化
+- ⏱️ 12時間セッション制限対応
 
 ### 2. ClearML設定（推奨）
 
@@ -84,22 +112,62 @@ export CLEARML_API_SECRET_KEY=your_secret_key_here
 
 ### 4. モデル学習
 
+#### ローカル環境での学習
+
 ```bash
 # モデルを学習（すべての設定はconfig.yamlから読み込まれます）
 python scripts/train_model.py
+```
+
+#### Google Colab での学習（推奨）
+
+```python
+# Colab セルで実行 - カーネルサイズ63に最適化済み
+!python scripts/train_model_colab.py
+```
+
+**Colab学習時の注意事項:**
+- 📱 **データアップロード**: JSON学習ファイルをColab のファイルブラウザでアップロード
+- ⏱️ **学習時間**: 推定時間が表示されます（12時間制限内で完了するよう最適化済み）
+- 💾 **モデル保存**: 学習完了後は `models/` フォルダからダウンロード
+- 🔧 **設定**: `config_colab.yaml` を使用してT4に最適化
+
+**Colab での効率的な使用方法:**
+```python
+# データアップロード（Colab セル）
+from google.colab import files
+uploaded = files.upload()  # JSONファイルを選択
+
+# データフォルダに移動
+!mkdir -p data
+!mv *.json data/
+
+# メモリ使用量確認
+!free -h && nvidia-smi
+
+# 学習開始（進捗監視付き）
+!python scripts/train_model_colab.py
+
+# 完了後、モデルダウンロード
+from google.colab import files
+!zip -r models.zip models/
+files.download('models.zip')
 ```
 
 ## プロジェクト構造
 
 ```
 SoundDitect/
-├── config.yaml              # 設定ファイル
+├── config.yaml              # 設定ファイル（ローカル環境用）
+├── config_colab.yaml        # Colab T4 最適化設定ファイル ⭐新規
 ├── requirements.txt          # Python依存関係
 ├── backend/                 # バックエンドコード
 │   ├── audio_processor.py  # 音声前処理
-│   └── model_manager.py    # AIモデル管理
+│   ├── model_manager.py    # AIモデル管理（AMP対応）
+│   └── memory_manager.py   # メモリ管理（Colab最適化）
 ├── scripts/                 # ユーティリティスクリプト
-│   ├── train_model.py      # モデル学習
+│   ├── train_model.py      # モデル学習（標準）
+│   ├── train_model_colab.py # Colab専用学習スクリプト ⭐新規
 │   └── setup_clearml.py    # ClearML設定スクリプト
 ├── models/                  # 学習済みモデル保存先
 ├── data/                    # 学習データ
@@ -107,7 +175,14 @@ SoundDitect/
 └── outputs/                 # 実験結果
 ```
 
+**⭐ Colab 最適化ファイル:**
+- `config_colab.yaml`: T4 GPU に最適化されたパラメータ設定
+- `train_model_colab.py`: Colab 環境での自動最適化とメモリ監視
+- カーネルサイズ63を維持しつつ、メモリ効率を最大化
+
 ## システム要件
+
+### ローカル環境
 
 **CPU要件:**
 - **最小**: Intel Core i5-8th gen / AMD Ryzen 5 3600 以上
@@ -124,6 +199,22 @@ SoundDitect/
 **ストレージ要件:**
 - **必要容量**: 2GB以上の空き容量
 - **推奨**: SSD（高速なファイルアクセス）
+
+### Google Colab 環境（推奨）
+
+**✅ Colab 無料版:**
+- **GPU**: NVIDIA T4 (16GB VRAM) - 自動最適化対応
+- **CPU**: Intel Xeon (2コア)
+- **RAM**: 12-13GB - 専用最適化済み
+- **ストレージ**: 100GB (セッション制限あり)
+- **学習時間**: 最大12時間/セッション
+
+**💡 Colab 利用のメリット:**
+- 💰 無料でT4 GPU使用可能
+- 🔧 環境構築不要（即座に学習開始）
+- ⚡ カーネルサイズ63対応の最適化済み
+- 📱 どこからでもアクセス可能
+- 🤖 自動メモリ管理
 
 ## AIモデルアーキテクチャ
 
@@ -152,6 +243,8 @@ clearml-serving --open
 
 ## トラブルシューティング
 
+### ローカル環境
+
 **ModuleNotFoundError: No module named 'yaml'**
 - PyYAMLが正しくインストールされていない場合に発生します
 - 解決方法:
@@ -169,6 +262,47 @@ clearml-serving --open
 
 **ClearML SSL接続エラー**
 - **対処**: エラーが発生してもモデル学習は継続されます（ClearMLなしで実行）
+
+### Google Colab 環境
+
+**❌ 「セッションがクラッシュしました」エラー**
+- **原因**: メモリ不足（通常はバッチサイズが大きすぎる）
+- **解決方法**:
+  ```python
+  # config_colab.yaml の batch_size を更に削減
+  batch_size: 2  # 4から2に変更
+  # または input_length を削減
+  input_length: 11025  # 0.25秒に短縮
+  ```
+
+**⏱️ 「12時間制限でセッション終了」**
+- **対処**: 学習を再開可能
+  ```python
+  # 前回の中断点から学習再開
+  !python scripts/train_model_colab.py --resume
+  ```
+
+**📱 「データアップロードに失敗」**
+- **解決方法**:
+  ```python
+  # Google Drive 経由でデータ読み込み
+  from google.colab import drive
+  drive.mount('/content/drive')
+  !cp /content/drive/MyDrive/your_data/*.json data/
+  ```
+
+**🔧 「カーネルサイズ63で Out of Memory」**
+- 既に最適化済みですが、さらなる調整が必要な場合:
+  ```yaml
+  # config_colab.yaml で調整
+  model:
+    input_length: 11025  # さらに短縮
+    cnn_layers:
+      - filters: 16      # フィルタ数削減
+        kernel_size: 63   # カーネルサイズは維持
+  training:
+    batch_size: 1        # 最小バッチサイズ
+  ```
 
 ## ライセンス
 

@@ -233,7 +233,10 @@ class AudioDataset(Dataset):
         self.augment = augment
         self.data_indices = []
         self.file_cache = {}  # Cache for small files
-        self.max_cache_size = 20  # Maximum cached samples (reduced for memory efficiency)
+        
+        # Use Colab cache limit if available, otherwise default
+        colab_config = config.get('colab', {})
+        self.max_cache_size = colab_config.get('cache_size_limit', 20)  # Colab-optimized cache size
         
         logger.info(f"📊 Initializing AudioDataset - integrating {len(data_files)} JSON files into unified dataset")
         
@@ -1027,6 +1030,15 @@ class ModelManager:
                 lr=self.config['training']['learning_rate']
             )
             
+            # Setup mixed precision training if enabled
+            scaler = None
+            use_amp = (self.memory_manager.mixed_precision and 
+                      self.memory_manager.gpu_available and 
+                      hasattr(torch.cuda, 'amp'))
+            if use_amp:
+                scaler = torch.cuda.amp.GradScaler()
+                logger.info("✅ Automatic Mixed Precision (AMP) enabled for memory efficiency")
+            
             # Memory check after optimizer creation
             if not self.memory_manager.enforce_memory_limit("After optimizer creation"):
                 logger.error("Insufficient memory after optimizer setup")
@@ -1039,7 +1051,9 @@ class ModelManager:
             
             for epoch in range(self.config['training']['epochs']):
                 # Training phase
-                train_loss, global_iteration = await self._train_epoch(train_loader, criterion, optimizer, epoch, global_iteration)
+                train_loss, global_iteration = await self._train_epoch(
+                    train_loader, criterion, optimizer, epoch, global_iteration, scaler, use_amp
+                )
                 
                 # Validation phase
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
@@ -1180,8 +1194,9 @@ class ModelManager:
             logger.error(f"Error creating data loaders: {e}")
             return None, None
     
-    async def _train_epoch(self, train_loader: DataLoader, criterion, optimizer, epoch: int, global_iteration: int) -> Tuple[float, int]:
-        """Train for one epoch with gradient accumulation and memory management."""
+    async def _train_epoch(self, train_loader: DataLoader, criterion, optimizer, epoch: int, 
+                         global_iteration: int, scaler=None, use_amp=False) -> Tuple[float, int]:
+        """Train for one epoch with gradient accumulation, memory management, and mixed precision."""
         self.model.train()
         total_loss = 0.0
         
@@ -1201,19 +1216,36 @@ class ModelManager:
             
             data, target = data.to(self.device), target.to(self.device)
             
-            # Forward pass
-            output = self.model(data)
-            loss = criterion(output, target)
-            
-            # Scale loss by accumulation steps
-            loss = loss / gradient_accumulation_steps
-            loss.backward()
-            
-            total_loss += loss.item() * gradient_accumulation_steps
+            # Forward pass with optional mixed precision
+            if use_amp and scaler:
+                with torch.cuda.amp.autocast():
+                    output = self.model(data)
+                    loss = criterion(output, target)
+                    # Scale loss by accumulation steps
+                    loss = loss / gradient_accumulation_steps
+                
+                # Backward pass with gradient scaling
+                scaler.scale(loss).backward()
+                total_loss += loss.item() * gradient_accumulation_steps
+            else:
+                # Standard precision training
+                output = self.model(data)
+                loss = criterion(output, target)
+                # Scale loss by accumulation steps
+                loss = loss / gradient_accumulation_steps
+                loss.backward()
+                total_loss += loss.item() * gradient_accumulation_steps
             
             # Update weights only after accumulating gradients
             if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
-                optimizer.step()
+                if use_amp and scaler:
+                    # Mixed precision optimizer step
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    # Standard optimizer step
+                    optimizer.step()
+                
                 optimizer.zero_grad()
                 global_iteration += 1
                 

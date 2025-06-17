@@ -1,0 +1,131 @@
+# SoundDitect Configuration File - Colab T4 Optimized
+# Real-time Sound Anomaly Detection System - Optimized for Google Colab T4 GPU
+# This configuration ensures training completes within Colab's resource constraints
+
+# Project Information
+project:
+  name: "SoundDitect"
+  version: "1.0.0"
+  description: "Real-time Sound Anomaly Detection AI Application (Colab Optimized)"
+
+# ClearML Configuration
+clearml:
+  project_name: "SoundDitect"
+  task_name: "anomaly_detection_training_colab"
+  output_uri: "file://./outputs"
+
+# Audio Processing Configuration
+audio:
+  sample_rate: 44100  # Hz - audio sampling rate
+  channels: 1         # Mono audio
+  format: "float32"
+  chunk_size: 2048    # Reduced from 4096 for memory efficiency
+
+# Model Configuration - Optimized for Colab T4
+model:
+  architecture: "1d_cnn_attention"  # 1D-CNN with attention mechanism
+  input_length: 22050  # 0.5 seconds of audio (reduced from 1 second for memory efficiency)
+  num_classes: 2       # Normal (0) vs Anomaly (1)
+  
+  # Model Architecture Parameters - Optimized for kernel size 63
+  cnn_layers:
+    - filters: 32        # Reduced from 64 for memory efficiency
+      kernel_size: 63    # Maintained as requested
+      stride: 2          # Increased stride to reduce output size
+      padding: "same"
+    - filters: 64        # Reduced from 128
+      kernel_size: 31    # Smaller kernel for deeper layers
+      stride: 2
+      padding: "same"
+    - filters: 64        # Reduced from 128, no increase
+      kernel_size: 15    # Even smaller for final CNN layer
+      stride: 2
+      padding: "same"
+  
+  attention:
+    hidden_dim: 64       # Reduced from 128 for memory efficiency
+    num_heads: 2         # Reduced from 4 to save memory
+  
+  fully_connected:
+    - units: 128         # Reduced from 256
+      dropout: 0.4       # Increased dropout for regularization
+    - units: 64          # Reduced from 128
+      dropout: 0.4
+
+# Training Configuration - Colab Optimized
+training:
+  batch_size: 4          # Reduced from 8 for memory efficiency with kernel size 63
+  epochs: 50             # Reduced from 100 to fit in 12-hour Colab session
+  learning_rate: 0.001
+  optimizer: "adam"
+  loss_function: "binary_crossentropy"
+  validation_split: 0.2
+  early_stopping:
+    patience: 8          # Reduced from 10 for faster stopping
+    monitor: "val_loss"
+  
+  # Data augmentation - Light augmentation for Colab
+  augmentation:
+    noise_factor: 0.005  # Reduced noise for stability
+    time_shift_max: 0.05 # Reduced time shift
+    pitch_shift_range: [-1, 1]  # Reduced pitch shift range
+
+# Data Processing Configuration - Memory Optimized
+data:
+  data_dir: "./data"
+  output_dir: "./outputs"
+  model_save_path: "./models"
+  
+  # Memory efficiency settings - Colab T4 optimized
+  use_data_generator: true
+  max_memory_usage: "8GB"        # Reduced from 10GB (T4 has ~12-13GB total)
+  prefetch_buffer_size: 1        # Reduced from 2 for memory efficiency
+  
+  # Memory management settings - Aggressive optimization
+  gradient_accumulation_steps: 4  # Reduced from 8 for faster updates
+  memory_efficient_attention: true
+  pin_memory: false              # False for Colab to avoid memory issues
+  num_workers: 0                 # Keep 0 for Colab compatibility
+
+# Colab-specific optimizations
+colab:
+  enable_gradient_checkpointing: true  # Save memory during backprop
+  mixed_precision: true               # Enable automatic mixed precision
+  cache_size_limit: 50               # Limit cached samples to 50
+  aggressive_memory_cleanup: true     # Enable aggressive memory cleanup
+  monitor_memory_every_n_batches: 5   # Monitor memory more frequently
+
+# Data Configuration - Multiple JSON File Support
+# The system will automatically find and integrate ALL *.json files in the data directory
+# This allows you to use multiple JSON files as training resources instead of combining them manually
+# 
+# Supported formats:
+# - New format: {"waveforms": [[...]], "labels": ["OK", "NG"], "fs": 44100}
+# - Old format: [{"Waveform": [...], "Labels": 0}, {"Waveform": [...], "Labels": 1}]
+# 
+# Multiple file handling:
+# - Single file: Used for both training and validation
+# - Multiple files: Automatically split between training and validation based on validation_split ratio
+
+# Preprocessing Configuration
+preprocessing:
+  normalize: true
+  apply_filter: true
+  filter_type: "butterworth"
+  filter_params:
+    low_freq: 20    # Hz
+    high_freq: 8000 # Hz
+    order: 4
+
+# Inference Configuration
+inference:
+  confidence_threshold: 0.5
+  model_path: "./models/best_model.pth"
+  use_gpu: true  # Enable GPU for Colab T4
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "./logs/soundditect.log"
+  max_file_size: "10MB"
+  backup_count: 5
