@@ -26,18 +26,21 @@ model:
   input_length: 44100  # 1 second of audio at 44.1kHz
   num_classes: 2       # Normal (0) vs Anomaly (1)
   
-  # Model Architecture Parameters
+  # Model Architecture Parameters - Hierarchical kernel sizes for strike sound detection
   cnn_layers:
+    # First layer: Large kernel to capture resonance and low-frequency components
     - filters: 64
-      kernel_size: 63
+      kernel_size: 255  # ~5.8ms range for sound resonance
       stride: 1
       padding: "same"
+    # Second layer: Medium kernel to refine features
     - filters: 128
-      kernel_size: 31
+      kernel_size: 63   # Medium range for feature refinement
       stride: 1
       padding: "same"
+    # Third layer: Small kernel to capture sharp attack features
     - filters: 128
-      kernel_size: 31
+      kernel_size: 31   # Sharp attack and fine detail features
       stride: 1
       padding: "same"
   
@@ -51,16 +54,29 @@ model:
     - units: 128
       dropout: 0.3
 
-# Training Configuration - Optimized for GPU with kernel size 63
+# Training Configuration - Optimized with improved learning strategies
 training:
-  batch_size: 4  # Reduced for kernel size 63 compatibility
-  epochs: 80     # Reduced to fit in Colab session time
+  batch_size: 4  # Reduced for large kernel compatibility
+  epochs: 50     # Reduced for efficient training with scheduler
   learning_rate: 0.001
   optimizer: "adam"
-  loss_function: "binary_crossentropy"
+  
+  # Learning rate scheduler for stable convergence
+  lr_scheduler:
+    name: "CosineAnnealingLR"  # Automatic learning rate adjustment
+    T_max: 50                  # Maximum epochs
+    eta_min: 0.00001           # Minimum learning rate
+  
+  # Improved loss function for imbalanced data
+  loss_function:
+    name: "binary_crossentropy"
+    # Weight for positive class (strike sounds) - adjust based on data ratio
+    # If normal sounds are 5x more common than strikes, use pos_weight: 5.0
+    pos_weight: 5.0
+  
   validation_split: 0.2
   early_stopping:
-    patience: 10
+    patience: 10  # Efficient early stopping
     monitor: "val_loss"
   
   # Data augmentation
