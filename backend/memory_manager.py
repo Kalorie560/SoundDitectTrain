@@ -156,12 +156,20 @@ class MemoryManager:
         stats = self.monitor_memory(operation)
         
         if stats['current_memory_gb'] > self.max_memory_gb:
-            logger.warning(f"Memory limit exceeded: {stats['current_memory_gb']:.2f} GB > {self.max_memory_gb:.2f} GB")
+            logger.error(f"MEMORY LIMIT EXCEEDED: {stats['current_memory_gb']:.2f} GB > {self.max_memory_gb:.2f} GB")
+            logger.error("Performing emergency memory cleanup...")
+            self.cleanup_memory(aggressive=True)
             return False
             
-        # Warning at 80% usage
-        if stats['memory_usage_percent'] > 80:
-            logger.warning(f"High memory usage: {stats['memory_usage_percent']:.1f}% of limit")
+        # More aggressive warnings for critical operations
+        critical_operations = ["Model creation", "Model initialization", "Training start"]
+        warning_threshold = 70 if any(op in operation for op in critical_operations) else 80
+        
+        if stats['memory_usage_percent'] > warning_threshold:
+            logger.warning(f"High memory usage: {stats['memory_usage_percent']:.1f}% of limit during {operation}")
+            if stats['memory_usage_percent'] > 85:
+                logger.warning("Performing preventive memory cleanup...")
+                self.cleanup_memory(aggressive=True)
         
         return True
     
@@ -185,12 +193,18 @@ class MemoryManager:
         # Aggressive cleanup if needed
         if aggressive:
             # Force multiple garbage collection cycles
-            for _ in range(3):
+            for _ in range(5):
                 gc.collect()
             
             # Clear Python caches
             if hasattr(gc, 'set_debug'):
                 gc.set_debug(0)
+                
+            # Additional PyTorch cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                torch.cuda.reset_peak_memory_stats()
         
         final_memory = self.get_memory_usage()
         freed_memory = initial_memory - final_memory
@@ -198,6 +212,38 @@ class MemoryManager:
         if freed_memory > 0.01:  # Only log if significant memory was freed
             logger.info(f"Memory cleanup freed {freed_memory:.2f} GB "
                        f"(from {initial_memory:.2f} to {final_memory:.2f} GB)")
+        
+        return freed_memory
+    
+    def enforce_memory_limit(self, operation: str = "Operation") -> bool:
+        """
+        Strictly enforce memory limit with emergency cleanup if needed.
+        
+        Args:
+            operation: Description of current operation
+            
+        Returns:
+            True if memory is under control, False if critical
+        """
+        current_memory = self.get_memory_usage()
+        
+        if current_memory > self.max_memory_gb:
+            logger.error(f"CRITICAL: Memory limit exceeded during {operation}")
+            logger.error(f"Current: {current_memory:.2f} GB, Limit: {self.max_memory_gb:.2f} GB")
+            
+            # Emergency cleanup
+            freed = self.cleanup_memory(aggressive=True)
+            
+            # Check again after cleanup
+            new_memory = self.get_memory_usage()
+            if new_memory > self.max_memory_gb:
+                logger.error(f"CRITICAL: Memory still over limit after cleanup: {new_memory:.2f} GB")
+                return False
+            else:
+                logger.info(f"Memory brought under control: {new_memory:.2f} GB")
+                return True
+        
+        return True
     
     def optimize_for_memory(self, model: torch.nn.Module) -> torch.nn.Module:
         """
@@ -240,7 +286,7 @@ class MemoryManager:
             logger.warning(f"Could not enable memory-efficient attention: {e}")
     
     def get_optimal_batch_size(self, model: torch.nn.Module, input_shape: tuple, 
-                             max_batch_size: int = 64) -> int:
+                             max_batch_size: int = 32) -> int:
         """
         Determine optimal batch size based on available memory.
         
@@ -257,10 +303,16 @@ class MemoryManager:
         model.eval()
         optimal_batch_size = 1
         
+        # Start with conservative memory threshold (60% of limit)
+        memory_threshold = self.max_memory_gb * 0.6
+        
         try:
-            for batch_size in [1, 2, 4, 8, 16, 32, 64]:
+            for batch_size in [1, 2, 4, 8]:  # More conservative batch size testing
                 if batch_size > max_batch_size:
                     break
+                
+                # Clear memory before test
+                self.cleanup_memory()
                 
                 # Test memory usage with this batch size
                 dummy_input = torch.randn(batch_size, *input_shape).to(self.device)
@@ -269,14 +321,19 @@ class MemoryManager:
                     with torch.no_grad():
                         _ = model(dummy_input)
                     
-                    # Check if memory usage is acceptable
-                    if self.check_memory_limit(f"Batch size test: {batch_size}"):
+                    # Check memory usage after forward pass
+                    current_memory = self.get_memory_usage()
+                    
+                    if current_memory < memory_threshold:
                         optimal_batch_size = batch_size
+                        logger.debug(f"Batch size {batch_size}: Memory usage {current_memory:.2f} GB (OK)")
                     else:
+                        logger.debug(f"Batch size {batch_size}: Memory usage {current_memory:.2f} GB (too high)")
                         break
                         
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
+                        logger.debug(f"Batch size {batch_size}: Out of memory")
                         break
                     raise
                 finally:
@@ -289,6 +346,29 @@ class MemoryManager:
         
         logger.info(f"Optimal batch size: {optimal_batch_size}")
         return optimal_batch_size
+    
+    def get_dynamic_batch_size(self, configured_batch_size: int) -> int:
+        """
+        Calculate dynamic batch size based on current memory usage.
+        
+        Args:
+            configured_batch_size: Configured batch size from config
+            
+        Returns:
+            Adjusted batch size
+        """
+        current_memory = self.get_memory_usage()
+        memory_usage_percent = (current_memory / self.max_memory_gb) * 100
+        
+        # Reduce batch size if memory usage is high
+        if memory_usage_percent > 80:
+            return max(1, configured_batch_size // 4)
+        elif memory_usage_percent > 70:
+            return max(1, configured_batch_size // 2)
+        elif memory_usage_percent > 60:
+            return max(1, int(configured_batch_size * 0.75))
+        else:
+            return configured_batch_size
     
     def create_memory_efficient_dataloader(self, dataset, batch_size: int, **kwargs):
         """

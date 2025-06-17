@@ -233,7 +233,7 @@ class AudioDataset(Dataset):
         self.augment = augment
         self.data_indices = []
         self.file_cache = {}  # Cache for small files
-        self.max_cache_size = 100  # Maximum cached samples
+        self.max_cache_size = 20  # Maximum cached samples (reduced for memory efficiency)
         
         logger.info(f"📊 Initializing AudioDataset - integrating {len(data_files)} JSON files into unified dataset")
         
@@ -313,6 +313,13 @@ class AudioDataset(Dataset):
         else:
             # Load only the specific sample (memory efficient)
             try:
+                # Temporary memory cleanup for large datasets
+                if len(self.file_cache) > self.max_cache_size * 0.8:
+                    # Remove oldest cached items to free memory
+                    keys_to_remove = list(self.file_cache.keys())[:len(self.file_cache)//4]
+                    for key in keys_to_remove:
+                        del self.file_cache[key]
+                
                 with open(self.data_files[file_idx], 'r') as f:
                     data = json.load(f)
             
@@ -337,7 +344,10 @@ class AudioDataset(Dataset):
                 else:
                     raise ValueError(f"Unknown data format in file {self.data_files[file_idx]}")
                 
-                # Cache small samples to avoid repeated file I/O
+                # Clear data from memory immediately after use
+                del data
+                
+                # Cache small samples to avoid repeated file I/O (but only if we have space)
                 if len(self.file_cache) < self.max_cache_size:
                     self.file_cache[cache_key] = (waveform.copy(), label)
                 
@@ -544,14 +554,36 @@ class ModelManager:
 
     def create_model(self) -> SoundAnomalyDetector:
         """Create a new model instance with memory optimizations."""
+        # Check memory before model creation
+        self.memory_manager.monitor_memory("Pre-model creation")
+        self.memory_manager.cleanup_memory()
+        
+        # Create model
+        logger.info("Creating model architecture...")
         model = SoundAnomalyDetector(self.config)
+        
+        # Check memory after model creation but before moving to device
+        self.memory_manager.enforce_memory_limit("Model creation")
+        
+        logger.info(f"Moving model to device: {self.device}")
         model = model.to(self.device)
         
+        # Check memory after moving to device
+        if not self.memory_manager.enforce_memory_limit("Model device transfer"):
+            logger.error("Memory limit exceeded during model device transfer")
+            raise RuntimeError("Insufficient memory for model creation")
+        
         # Apply memory optimizations
+        logger.info("Applying memory optimizations...")
         model = self.memory_manager.optimize_for_memory(model)
         
-        # Log memory usage after model creation
-        self.memory_manager.monitor_memory("Model creation")
+        # Final memory check
+        if not self.memory_manager.enforce_memory_limit("Model optimization"):
+            logger.error("Memory limit exceeded during model optimization")
+            raise RuntimeError("Insufficient memory after model optimization")
+        
+        # Log final memory usage
+        self.memory_manager.monitor_memory("Model creation complete")
         
         return model
     
@@ -979,15 +1011,26 @@ class ModelManager:
             else:
                 logger.info("📊 Dataset information logged locally (ClearML connection pending)")
             
-            # Create model
+            # Create model with memory monitoring
             self.model = self.create_model()
             
+            # Memory check after model creation
+            if not self.memory_manager.enforce_memory_limit("After model creation"):
+                logger.error("Insufficient memory to continue training")
+                return False
+            
             # Setup training
+            logger.info("Setting up training components...")
             criterion = nn.CrossEntropyLoss()
             optimizer = optim.Adam(
                 self.model.parameters(), 
                 lr=self.config['training']['learning_rate']
             )
+            
+            # Memory check after optimizer creation
+            if not self.memory_manager.enforce_memory_limit("After optimizer creation"):
+                logger.error("Insufficient memory after optimizer setup")
+                return False
             
             # Training loop
             best_val_loss = float('inf')
@@ -1112,8 +1155,12 @@ class ModelManager:
             
             logger.info(f"📊 Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
             
-            # Create memory-efficient data loaders
-            batch_size = min(self.config['training']['batch_size'], len(train_dataset))
+            # Create memory-efficient data loaders with dynamic batch sizing
+            configured_batch_size = self.config['training']['batch_size']
+            dynamic_batch_size = self.memory_manager.get_dynamic_batch_size(configured_batch_size)
+            batch_size = min(dynamic_batch_size, len(train_dataset))
+            
+            logger.info(f"Using dynamic batch size: {batch_size} (configured: {configured_batch_size})")
             
             train_loader = self.memory_manager.create_memory_efficient_dataloader(
                 train_dataset,
@@ -1141,7 +1188,17 @@ class ModelManager:
         # Get gradient accumulation steps from config
         gradient_accumulation_steps = self.memory_manager.gradient_accumulation_steps
         
+        # Pre-training memory cleanup
+        self.memory_manager.cleanup_memory()
+        self.memory_manager.enforce_memory_limit(f"Training epoch {epoch} start")
+        
         for batch_idx, (data, target) in enumerate(train_loader):
+            # Memory check before processing batch (especially first few batches)
+            if batch_idx < 5 or batch_idx % max(1, len(train_loader) // 10) == 0:
+                if not self.memory_manager.enforce_memory_limit(f"Training epoch {epoch}, batch {batch_idx}"):
+                    logger.error("Critical memory issue - stopping training")
+                    raise RuntimeError("Memory limit exceeded during training")
+            
             data, target = data.to(self.device), target.to(self.device)
             
             # Forward pass
@@ -1160,11 +1217,16 @@ class ModelManager:
                 optimizer.zero_grad()
                 global_iteration += 1
                 
-            # Memory monitoring and cleanup every few batches
-            if batch_idx % max(1, len(train_loader) // 20) == 0:
-                self.memory_manager.monitor_memory(f"Training epoch {epoch}, batch {batch_idx}")
-                if not self.memory_manager.check_memory_limit():
-                    logger.warning("Memory limit exceeded, performing cleanup")
+                # Memory cleanup after weight updates
+                if global_iteration % 5 == 0:  # Every 5 weight updates
+                    self.memory_manager.cleanup_memory()
+                
+            # More frequent memory monitoring for early batches
+            memory_check_frequency = 5 if batch_idx < 10 else max(1, len(train_loader) // 20)
+            if batch_idx % memory_check_frequency == 0:
+                stats = self.memory_manager.monitor_memory(f"Training epoch {epoch}, batch {batch_idx}")
+                if stats['memory_usage_percent'] > 90:
+                    logger.warning("Critical memory usage - performing aggressive cleanup")
                     self.memory_manager.cleanup_memory(aggressive=True)
             
             # Log training progress
