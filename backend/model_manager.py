@@ -157,7 +157,7 @@ class SoundAnomalyDetector(nn.Module):
                 ),
                 nn.BatchNorm1d(layer_config['filters']),
                 nn.ReLU(),
-                nn.MaxPool1d(2)
+                nn.MaxPool1d(4)  # Changed from 2 to 4 for better dimensionality reduction and position invariance
             ])
             input_channels = layer_config['filters']
         
@@ -1038,11 +1038,36 @@ class ModelManager:
                 logger.info(f"📍 Model using device: {optimal_device}")
             
             # Initialize training components
-            criterion = nn.CrossEntropyLoss().to(optimal_device)
+            # Setup loss function with pos_weight for imbalanced data
+            loss_config = self.config['training'].get('loss_function', {})
+            if isinstance(loss_config, dict) and 'pos_weight' in loss_config:
+                # For binary classification with imbalanced data, use class weights
+                pos_weight_value = loss_config['pos_weight']
+                # Create class weights: [normal_weight, anomaly_weight]
+                class_weights = torch.tensor([1.0, pos_weight_value], dtype=torch.float32).to(optimal_device)
+                criterion = nn.CrossEntropyLoss(weight=class_weights).to(optimal_device)
+                logger.info(f"🎯 Using weighted CrossEntropyLoss with class weights: [1.0, {pos_weight_value}]")
+            else:
+                criterion = nn.CrossEntropyLoss().to(optimal_device)
+                logger.info("📊 Using standard CrossEntropyLoss")
+            
             optimizer = optim.Adam(
                 self.model.parameters(), 
                 lr=self.config['training']['learning_rate']
             )
+            
+            # Setup learning rate scheduler
+            scheduler = None
+            lr_scheduler_config = self.config['training'].get('lr_scheduler', {})
+            if lr_scheduler_config.get('name') == 'CosineAnnealingLR':
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer,
+                    T_max=lr_scheduler_config.get('T_max', 50),
+                    eta_min=lr_scheduler_config.get('eta_min', 0.00001)
+                )
+                logger.info(f"📈 Using CosineAnnealingLR scheduler: T_max={lr_scheduler_config.get('T_max', 50)}, eta_min={lr_scheduler_config.get('eta_min', 0.00001)}")
+            else:
+                logger.info("📊 Using constant learning rate")
             
             # Setup automatic mixed precision training for GPU efficiency
             scaler = None
@@ -1074,6 +1099,18 @@ class ModelManager:
                 
                 # Validation phase
                 val_loss, val_acc = await self._validate_epoch(val_loader, criterion)
+                
+                # Update learning rate scheduler
+                if scheduler is not None:
+                    scheduler.step()
+                    current_lr = scheduler.get_last_lr()[0]
+                    logger.debug(f"Learning rate updated to: {current_lr:.6f}")
+                    
+                    # Log learning rate to ClearML
+                    self._safe_clearml_operation(
+                        lambda: self.clearml_logger.report_scalar("Training", "Learning Rate", iteration=epoch, value=current_lr),
+                        "learning rate logging"
+                    )
                 
                 # Log metrics to ClearML safely
                 metrics_logged = False
