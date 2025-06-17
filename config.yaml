@@ -51,10 +51,10 @@ model:
     - units: 128
       dropout: 0.3
 
-# Training Configuration
+# Training Configuration - Optimized for GPU with kernel size 63
 training:
-  batch_size: 8
-  epochs: 100
+  batch_size: 4  # Reduced for kernel size 63 compatibility
+  epochs: 80     # Reduced to fit in Colab session time
   learning_rate: 0.001
   optimizer: "adam"
   loss_function: "binary_crossentropy"
@@ -75,15 +75,23 @@ data:
   output_dir: "./outputs"
   model_save_path: "./models"
   
-  # Memory efficiency settings
+  # Memory efficiency settings - Optimized for Colab T4
   use_data_generator: true
-  max_memory_usage: "10GB"
-  prefetch_buffer_size: 2
+  max_memory_usage: "8GB"  # Reduced for Colab compatibility
+  prefetch_buffer_size: 1  # Reduced for memory efficiency
   
-  # Memory management settings
-  gradient_accumulation_steps: 8
+  # Memory management settings - GPU optimized
+  gradient_accumulation_steps: 4  # Reduced for faster updates
   memory_efficient_attention: true
-  pin_memory: false
+  pin_memory: false  # Keep false for Colab stability
+
+# Colab-specific optimizations (automatically detected)
+colab:
+  enable_gradient_checkpointing: true  # Save memory during backprop
+  mixed_precision: true               # Enable automatic mixed precision
+  cache_size_limit: 50               # Limit cached samples for memory efficiency
+  aggressive_memory_cleanup: true     # Enable aggressive memory cleanup
+  monitor_memory_every_n_batches: 5   # Monitor memory more frequently
 
 # Data Configuration - Multiple JSON File Support
 # The system will automatically find and integrate ALL *.json files in the data directory
@@ -112,7 +120,7 @@ preprocessing:
 inference:
   confidence_threshold: 0.5
   model_path: "./models/best_model.pth"
-  use_gpu: false  # Set to true if CUDA available
+  use_gpu: true  # Enable GPU when available (automatically uses CPU as fallback)
   
 # Logging Configuration
 logging:
