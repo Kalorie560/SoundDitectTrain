@@ -29,7 +29,7 @@ model:
   # Model Architecture Parameters
   cnn_layers:
     - filters: 64
-      kernel_size: 31
+      kernel_size: 63
       stride: 1
       padding: "same"
     - filters: 128

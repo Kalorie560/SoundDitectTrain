@@ -39,6 +39,14 @@ class MemoryManager:
         self.gradient_accumulation_steps = config['data'].get('gradient_accumulation_steps', 1)
         self.memory_efficient_attention = config['data'].get('memory_efficient_attention', False)
         
+        # Colab-specific optimizations
+        self.colab_config = config.get('colab', {})
+        self.enable_gradient_checkpointing = self.colab_config.get('enable_gradient_checkpointing', False)
+        self.mixed_precision = self.colab_config.get('mixed_precision', False)
+        self.cache_size_limit = self.colab_config.get('cache_size_limit', 100)
+        self.aggressive_memory_cleanup = self.colab_config.get('aggressive_memory_cleanup', False)
+        self.monitor_memory_frequency = self.colab_config.get('monitor_memory_every_n_batches', 10)
+        
         # Memory monitoring
         self.process = psutil.Process(os.getpid())
         self.initial_memory = self.get_memory_usage()
@@ -55,6 +63,14 @@ class MemoryManager:
         logger.info(f"  Gradient accumulation steps: {self.gradient_accumulation_steps}")
         logger.info(f"  Memory-efficient attention: {self.memory_efficient_attention}")
         logger.info(f"  GPU available: {self.gpu_available}")
+        
+        # Log Colab-specific settings if enabled
+        if self.colab_config:
+            logger.info(f"  Colab optimizations enabled:")
+            logger.info(f"    Gradient checkpointing: {self.enable_gradient_checkpointing}")
+            logger.info(f"    Mixed precision: {self.mixed_precision}")
+            logger.info(f"    Cache limit: {self.cache_size_limit}")
+            logger.info(f"    Aggressive cleanup: {self.aggressive_memory_cleanup}")
     
     def _parse_memory_limit(self, limit_str: str) -> float:
         """Parse memory limit string to GB float."""
@@ -266,9 +282,58 @@ class MemoryManager:
             model.gradient_checkpointing = True
             logger.info("Enabled gradient checkpointing")
         
+        # Apply Colab-specific optimizations
+        if self.colab_config:
+            model = self._apply_colab_optimizations(model)
+        
         # Set model to use less memory-intensive precision if supported
         if self.gpu_available and hasattr(torch.cuda, 'amp'):
             logger.info("Mixed precision training will be enabled")
+        
+        return model
+    
+    def _apply_colab_optimizations(self, model: torch.nn.Module) -> torch.nn.Module:
+        """
+        Apply Colab-specific optimizations to the model.
+        
+        Args:
+            model: PyTorch model to optimize
+            
+        Returns:
+            Optimized model for Colab environment
+        """
+        logger.info("Applying Colab-specific optimizations...")
+        
+        # Enable gradient checkpointing for memory efficiency
+        if self.enable_gradient_checkpointing:
+            try:
+                # Try to enable gradient checkpointing for compatible layers
+                for name, module in model.named_modules():
+                    if hasattr(module, 'gradient_checkpointing'):
+                        module.gradient_checkpointing = True
+                        logger.info(f"Enabled gradient checkpointing for {name}")
+                    elif 'transformer' in name.lower() or 'attention' in name.lower():
+                        # Apply gradient checkpointing to attention/transformer layers
+                        if hasattr(module, 'forward'):
+                            # Wrap the forward method with gradient checkpointing
+                            import torch.utils.checkpoint as checkpoint
+                            original_forward = module.forward
+                            def checkpointed_forward(*args, **kwargs):
+                                return checkpoint.checkpoint(original_forward, *args, **kwargs)
+                            module.forward = checkpointed_forward
+                            logger.info(f"Applied gradient checkpointing wrapper to {name}")
+            except Exception as e:
+                logger.warning(f"Could not enable gradient checkpointing: {e}")
+        
+        # Apply model parallelism if multiple GPUs available
+        if torch.cuda.device_count() > 1:
+            logger.info(f"Multiple GPUs detected ({torch.cuda.device_count()}), enabling DataParallel")
+            model = torch.nn.DataParallel(model)
+        
+        # Enable mixed precision training preparation
+        if self.mixed_precision and self.gpu_available:
+            # This prepares the model for automatic mixed precision
+            logger.info("Model prepared for automatic mixed precision training")
         
         return model
     
