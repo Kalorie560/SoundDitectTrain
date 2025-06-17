@@ -18,6 +18,7 @@ audio:
   sample_rate: 44100  # Hz - audio sampling rate
   channels: 1         # Mono audio
   format: "float32"
+  chunk_size: 4096    # Audio chunk size for processing
 
 # Model Configuration
 model:
@@ -27,18 +28,18 @@ model:
   
   # Model Architecture Parameters
   cnn_layers:
-    - filters: 64
-      kernel_size: 3
+    - filters: 128
+      kernel_size: 63
       stride: 1
       padding: "same"
     - filters: 128
-      kernel_size: 3
-      stride: 2
-      padding: 1
+      kernel_size: 63
+      stride: 1
+      padding: "same"
     - filters: 256
-      kernel_size: 3
-      stride: 2
-      padding: 1
+      kernel_size: 63
+      stride: 1
+      padding: "same"
   
   attention:
     hidden_dim: 256
@@ -52,7 +53,7 @@ model:
 
 # Training Configuration
 training:
-  batch_size: 32
+  batch_size: 16
   epochs: 100
   learning_rate: 0.001
   optimizer: "adam"
@@ -76,8 +77,13 @@ data:
   
   # Memory efficiency settings
   use_data_generator: true
-  max_memory_usage: "2GB"
-  prefetch_buffer_size: 10
+  max_memory_usage: "10GB"
+  prefetch_buffer_size: 2
+  
+  # Memory management settings
+  gradient_accumulation_steps: 4
+  memory_efficient_attention: true
+  pin_memory: false
 
 # Data Configuration - Multiple JSON File Support
 # The system will automatically find and integrate ALL *.json files in the data directory
