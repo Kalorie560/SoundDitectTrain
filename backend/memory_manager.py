@@ -10,7 +10,7 @@ import os
 import psutil
 import torch
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from pathlib import Path
 import time
 
