@@ -32,17 +32,17 @@ model:
     - filters: 64
       kernel_size: 255  # ~5.8ms range for sound resonance
       stride: 1
-      padding: "same"
+      padding: 127  # (kernel_size-1)//2 for 'same' padding equivalent
     # Second layer: Medium kernel to refine features
     - filters: 128
       kernel_size: 63   # Medium range for feature refinement
       stride: 1
-      padding: "same"
+      padding: 31   # (kernel_size-1)//2 for 'same' padding equivalent
     # Third layer: Small kernel to capture sharp attack features
     - filters: 128
       kernel_size: 31   # Sharp attack and fine detail features
       stride: 1
-      padding: "same"
+      padding: 15   # (kernel_size-1)//2 for 'same' padding equivalent
   
   attention:
     hidden_dim: 128
