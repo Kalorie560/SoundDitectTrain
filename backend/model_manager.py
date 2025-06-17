@@ -44,6 +44,7 @@ import json
 import copy
 from typing import Tuple, Optional, Dict, Any
 import time
+from memory_manager import MemoryManager
 # ClearML for experiment tracking
 try:
     from clearml import Task, Logger
@@ -55,13 +56,14 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class AttentionLayer(nn.Module):
-    """Multi-head attention layer for audio feature processing."""
+    """Multi-head attention layer for audio feature processing with memory efficiency."""
     
     def __init__(self, input_dim: int, hidden_dim: int, num_heads: int):
         super(AttentionLayer, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
         self.head_dim = hidden_dim // num_heads
+        self.memory_efficient = False  # Will be set by memory manager
         
         self.query = nn.Linear(input_dim, hidden_dim)
         self.key = nn.Linear(input_dim, hidden_dim)
@@ -72,6 +74,15 @@ class AttentionLayer(nn.Module):
     def forward(self, x):
         batch_size, seq_len, input_dim = x.size()
         
+        if self.memory_efficient and seq_len > 1000:
+            # Use memory-efficient attention for long sequences
+            return self._memory_efficient_attention(x, batch_size, seq_len)
+        else:
+            # Standard attention
+            return self._standard_attention(x, batch_size, seq_len)
+    
+    def _standard_attention(self, x, batch_size, seq_len):
+        """Standard multi-head attention."""
         # Compute queries, keys, values
         Q = self.query(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         K = self.key(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -84,6 +95,39 @@ class AttentionLayer(nn.Module):
         
         # Apply attention to values
         attended = torch.matmul(attention_weights, V)
+        attended = attended.transpose(1, 2).contiguous().view(
+            batch_size, seq_len, self.hidden_dim
+        )
+        
+        output = self.output(attended)
+        return output
+    
+    def _memory_efficient_attention(self, x, batch_size, seq_len):
+        """Memory-efficient attention using chunking."""
+        chunk_size = 256  # Process in smaller chunks
+        
+        # Compute Q, K, V
+        Q = self.query(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.key(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.value(x).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # Process in chunks to save memory
+        output_chunks = []
+        for i in range(0, seq_len, chunk_size):
+            end_idx = min(i + chunk_size, seq_len)
+            q_chunk = Q[:, :, i:end_idx, :]
+            
+            # Compute attention for this chunk
+            scores = torch.matmul(q_chunk, K.transpose(-2, -1)) / np.sqrt(self.head_dim)
+            attention_weights = torch.softmax(scores, dim=-1)
+            attention_weights = self.dropout(attention_weights)
+            
+            # Apply attention
+            attended_chunk = torch.matmul(attention_weights, V)
+            output_chunks.append(attended_chunk)
+        
+        # Concatenate chunks
+        attended = torch.cat(output_chunks, dim=2)
         attended = attended.transpose(1, 2).contiguous().view(
             batch_size, seq_len, self.hidden_dim
         )
@@ -188,6 +232,8 @@ class AudioDataset(Dataset):
         self.config = config
         self.augment = augment
         self.data_indices = []
+        self.file_cache = {}  # Cache for small files
+        self.max_cache_size = 100  # Maximum cached samples
         
         logger.info(f"📊 Initializing AudioDataset - integrating {len(data_files)} JSON files into unified dataset")
         
@@ -260,43 +306,53 @@ class AudioDataset(Dataset):
     def __getitem__(self, idx):
         file_idx, sample_idx = self.data_indices[idx]
         
-        # Load only the specific sample (memory efficient)
-        try:
-            with open(self.data_files[file_idx], 'r') as f:
-                data = json.load(f)
+        # Check cache first for memory efficiency
+        cache_key = (file_idx, sample_idx)
+        if cache_key in self.file_cache:
+            waveform, label = self.file_cache[cache_key]
+        else:
+            # Load only the specific sample (memory efficient)
+            try:
+                with open(self.data_files[file_idx], 'r') as f:
+                    data = json.load(f)
             
-            if isinstance(data, list):
-                # Old format: [{"Waveform": [...], "Labels": 0}, ...]
-                sample = data[sample_idx]
-                waveform = np.array(sample['Waveform'], dtype=np.float32)
-                label = sample['Labels']
-            elif isinstance(data, dict) and 'waveforms' in data:
-                # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
-                waveform = np.array(data['waveforms'][sample_idx], dtype=np.float32)
-                label_str = data['labels'][sample_idx]
-                
-                # Convert string labels to integers
-                if label_str == "OK":
-                    label = 0
-                elif label_str == "NG":
-                    label = 1
+                if isinstance(data, list):
+                    # Old format: [{"Waveform": [...], "Labels": 0}, ...]
+                    sample = data[sample_idx]
+                    waveform = np.array(sample['Waveform'], dtype=np.float32)
+                    label = sample['Labels']
+                elif isinstance(data, dict) and 'waveforms' in data:
+                    # New format: {"waveforms": [[...], [...]], "labels": ["OK", "NG"]}
+                    waveform = np.array(data['waveforms'][sample_idx], dtype=np.float32)
+                    label_str = data['labels'][sample_idx]
+                    
+                    # Convert string labels to integers
+                    if label_str == "OK":
+                        label = 0
+                    elif label_str == "NG":
+                        label = 1
+                    else:
+                        logger.warning(f"Unknown label '{label_str}', defaulting to 0")
+                        label = 0
                 else:
-                    logger.warning(f"Unknown label '{label_str}', defaulting to 0")
-                    label = 0
-            else:
-                raise ValueError(f"Unknown data format in file {self.data_files[file_idx]}")
-            
-            # Apply augmentation if training
-            if self.augment:
-                # Add augmentation logic here if needed
-                pass
-            
-            return torch.tensor(waveform), torch.tensor(label, dtype=torch.long)
-            
-        except Exception as e:
-            logger.error(f"Error loading sample {idx}: {e}")
-            # Return zero tensor as fallback
-            return torch.zeros(self.config['model']['input_length']), torch.tensor(0, dtype=torch.long)
+                    raise ValueError(f"Unknown data format in file {self.data_files[file_idx]}")
+                
+                # Cache small samples to avoid repeated file I/O
+                if len(self.file_cache) < self.max_cache_size:
+                    self.file_cache[cache_key] = (waveform.copy(), label)
+                
+            except Exception as e:
+                logger.error(f"Error loading sample {idx}: {e}")
+                # Return zero tensor as fallback
+                waveform = np.zeros(self.config['model']['input_length'], dtype=np.float32)
+                label = 0
+        
+        # Apply augmentation if training
+        if self.augment:
+            # Add augmentation logic here if needed
+            pass
+        
+        return torch.tensor(waveform, dtype=torch.float32), torch.tensor(label, dtype=torch.long)
 
 class ModelManager:
     """Manager for model training, inference, and experiment tracking."""
@@ -310,6 +366,9 @@ class ModelManager:
         self.clearml_connection_disabled = False  # Track if disabled due to connection issues
         self.clearml_retry_count = 0  # Track retry attempts
         self.prediction_count = 0
+        
+        # Initialize memory manager for efficient training
+        self.memory_manager = MemoryManager(config)
         
         logger.info(f"Using device: {self.device}")
         
@@ -484,9 +543,17 @@ class ModelManager:
             return None
 
     def create_model(self) -> SoundAnomalyDetector:
-        """Create a new model instance."""
+        """Create a new model instance with memory optimizations."""
         model = SoundAnomalyDetector(self.config)
-        return model.to(self.device)
+        model = model.to(self.device)
+        
+        # Apply memory optimizations
+        model = self.memory_manager.optimize_for_memory(model)
+        
+        # Log memory usage after model creation
+        self.memory_manager.monitor_memory("Model creation")
+        
+        return model
     
     async def load_model(self, model_path: Optional[str] = None) -> bool:
         """
@@ -868,6 +935,9 @@ class ModelManager:
         try:
             logger.info("Starting model training...")
             
+            # Monitor initial memory usage
+            self.memory_manager.monitor_memory("Training start")
+            
             # Create data loaders
             train_loader, val_loader = self._create_data_loaders()
             
@@ -979,6 +1049,10 @@ class ModelManager:
             else:
                 logger.info("📊 Training completed (ClearML completion pending)")
             
+            # Final memory cleanup and summary
+            self.memory_manager.cleanup_memory()
+            self.memory_manager.log_memory_summary()
+            
             logger.info("Training completed")
             return True
             
@@ -1038,19 +1112,19 @@ class ModelManager:
             
             logger.info(f"📊 Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
             
-            # Create data loaders
-            train_loader = DataLoader(
+            # Create memory-efficient data loaders
+            batch_size = min(self.config['training']['batch_size'], len(train_dataset))
+            
+            train_loader = self.memory_manager.create_memory_efficient_dataloader(
                 train_dataset,
-                batch_size=min(self.config['training']['batch_size'], len(train_dataset)),
-                shuffle=True,
-                num_workers=0  # Set to 0 for stability with small datasets
+                batch_size=batch_size,
+                shuffle=True
             )
             
-            val_loader = DataLoader(
+            val_loader = self.memory_manager.create_memory_efficient_dataloader(
                 val_dataset,
-                batch_size=min(self.config['training']['batch_size'], len(val_dataset)),
-                shuffle=False,
-                num_workers=0  # Set to 0 for stability with small datasets
+                batch_size=min(batch_size, len(val_dataset)),
+                shuffle=False
             )
             
             return train_loader, val_loader
@@ -1060,21 +1134,38 @@ class ModelManager:
             return None, None
     
     async def _train_epoch(self, train_loader: DataLoader, criterion, optimizer, epoch: int, global_iteration: int) -> Tuple[float, int]:
-        """Train for one epoch."""
+        """Train for one epoch with gradient accumulation and memory management."""
         self.model.train()
         total_loss = 0.0
+        
+        # Get gradient accumulation steps from config
+        gradient_accumulation_steps = self.memory_manager.gradient_accumulation_steps
         
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.to(self.device), target.to(self.device)
             
-            optimizer.zero_grad()
+            # Forward pass
             output = self.model(data)
             loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
             
-            total_loss += loss.item()
-            global_iteration += 1
+            # Scale loss by accumulation steps
+            loss = loss / gradient_accumulation_steps
+            loss.backward()
+            
+            total_loss += loss.item() * gradient_accumulation_steps
+            
+            # Update weights only after accumulating gradients
+            if (batch_idx + 1) % gradient_accumulation_steps == 0 or (batch_idx + 1) == len(train_loader):
+                optimizer.step()
+                optimizer.zero_grad()
+                global_iteration += 1
+                
+            # Memory monitoring and cleanup every few batches
+            if batch_idx % max(1, len(train_loader) // 20) == 0:
+                self.memory_manager.monitor_memory(f"Training epoch {epoch}, batch {batch_idx}")
+                if not self.memory_manager.check_memory_limit():
+                    logger.warning("Memory limit exceeded, performing cleanup")
+                    self.memory_manager.cleanup_memory(aggressive=True)
             
             # Log training progress
             if batch_idx % max(1, len(train_loader) // 10) == 0:
@@ -1105,7 +1196,7 @@ class ModelManager:
         return total_loss / len(train_loader), global_iteration
     
     async def _validate_epoch(self, val_loader: DataLoader, criterion) -> Tuple[float, float]:
-        """Validate for one epoch."""
+        """Validate for one epoch with memory monitoring."""
         self.model.eval()
         total_loss = 0.0
         correct = 0
@@ -1122,6 +1213,10 @@ class ModelManager:
                 _, predicted = torch.max(output.data, 1)
                 total += target.size(0)
                 correct += (predicted == target).sum().item()
+                
+                # Memory monitoring during validation
+                if batch_idx % max(1, len(val_loader) // 10) == 0:
+                    self.memory_manager.monitor_memory(f"Validation batch {batch_idx}")
                 
                 # Allow other coroutines to run
                 if batch_idx % 10 == 0:
