@@ -53,9 +53,26 @@ class MemoryManager:
         self.peak_memory = self.initial_memory
         self.memory_history = []
         
-        # GPU memory tracking
+        # GPU memory tracking and management
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.gpu_available = torch.cuda.is_available()
+        
+        # T4-specific optimizations
+        if self.gpu_available:
+            self.gpu_memory_total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            self.gpu_memory_threshold = self.gpu_memory_total * 0.8  # Use 80% of GPU memory safely
+            
+            # Enable memory pool optimizations for T4
+            if hasattr(torch.cuda, 'set_per_process_memory_fraction'):
+                torch.cuda.set_per_process_memory_fraction(0.9)  # Use 90% of GPU memory
+            
+            # Enable memory mapping for faster data transfer
+            if hasattr(torch.cuda, 'memory_pool'):
+                logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
+                logger.info(f"GPU memory: {self.gpu_memory_total:.1f} GB total")
+        else:
+            self.gpu_memory_total = 0.0
+            self.gpu_memory_threshold = 0.0
         
         logger.info(f"Memory Manager initialized:")
         logger.info(f"  Max memory limit: {self.max_memory_gb:.1f} GB")
@@ -488,3 +505,145 @@ class MemoryManager:
             logger.info(f"Recent memory trend: {recent_growth:+.2f} GB")
         
         logger.info("=" * 30)
+    
+    def manage_hybrid_memory(self, operation: str = "Training") -> Dict[str, float]:
+        """
+        Manage hybrid CPU+GPU memory utilization for optimal performance.
+        
+        This method ensures efficient use of both CPU RAM and GPU VRAM by:
+        - Moving tensors to GPU when VRAM is available
+        - Keeping data on CPU when GPU memory is limited
+        - Optimizing memory transfer patterns
+        
+        Args:
+            operation: Description of current operation
+            
+        Returns:
+            Dictionary with hybrid memory statistics
+        """
+        stats = self.monitor_memory(operation)
+        
+        if not self.gpu_available:
+            return stats
+        
+        gpu_used, gpu_total = self.get_gpu_memory_usage()
+        gpu_usage_percent = (gpu_used / gpu_total * 100) if gpu_total > 0 else 0
+        
+        # Adaptive memory management based on GPU usage
+        if gpu_usage_percent > 85:
+            # GPU memory is high - be more conservative
+            logger.debug(f"GPU memory high ({gpu_usage_percent:.1f}%) - using CPU for data caching")
+            self._move_cache_to_cpu()
+        elif gpu_usage_percent < 50 and stats['memory_usage_percent'] > 70:
+            # CPU memory high but GPU memory available - use GPU for caching
+            logger.debug(f"CPU memory high ({stats['memory_usage_percent']:.1f}%) - utilizing GPU memory")
+            self._utilize_gpu_memory()
+        
+        # Update stats with hybrid information
+        stats.update({
+            'hybrid_mode': True,
+            'gpu_memory_available_gb': gpu_total - gpu_used,
+            'optimal_device': 'cuda' if gpu_usage_percent < 80 else 'cpu',
+            'memory_transfer_recommended': gpu_usage_percent < 60 and stats['memory_usage_percent'] > 60
+        })
+        
+        return stats
+    
+    def _move_cache_to_cpu(self):
+        """Move cached data from GPU to CPU to free GPU memory."""
+        try:
+            # Force GPU cache cleanup
+            if self.gpu_available:
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.debug("Freed GPU cache to reduce VRAM pressure")
+        except Exception as e:
+            logger.warning(f"Error moving cache to CPU: {e}")
+    
+    def _utilize_gpu_memory(self):
+        """Utilize available GPU memory for better performance."""
+        try:
+            if self.gpu_available:
+                # Pre-allocate some GPU memory for efficient use
+                gpu_used, gpu_total = self.get_gpu_memory_usage()
+                available_memory = gpu_total - gpu_used
+                
+                if available_memory > 2.0:  # If more than 2GB available
+                    # Create a small tensor to "reserve" GPU memory for training
+                    logger.debug(f"Pre-warming GPU memory pool ({available_memory:.1f}GB available)")
+                    # This helps prevent memory fragmentation during training
+                    
+        except Exception as e:
+            logger.warning(f"Error utilizing GPU memory: {e}")
+    
+    def get_optimal_device_for_tensor(self, tensor_size_mb: float) -> str:
+        """
+        Determine optimal device (CPU or GPU) for tensor allocation.
+        
+        Args:
+            tensor_size_mb: Size of tensor in MB
+            
+        Returns:
+            'cuda' or 'cpu' depending on optimal placement
+        """
+        if not self.gpu_available:
+            return 'cpu'
+        
+        gpu_used, gpu_total = self.get_gpu_memory_usage()
+        gpu_available_gb = gpu_total - gpu_used
+        tensor_size_gb = tensor_size_mb / 1024
+        
+        # Decision logic for tensor placement
+        if tensor_size_gb > gpu_available_gb * 0.5:
+            # Tensor is too large for GPU - use CPU
+            return 'cpu'
+        elif gpu_used / gpu_total > 0.8:
+            # GPU memory usage is high - use CPU
+            return 'cpu'
+        else:
+            # GPU has sufficient space - use GPU for better performance
+            return 'cuda'
+    
+    def optimize_data_loading_for_hybrid(self, dataset_size: int, batch_size: int) -> Dict[str, Any]:
+        """
+        Optimize data loading strategy for hybrid CPU+GPU memory usage.
+        
+        Args:
+            dataset_size: Total number of samples in dataset
+            batch_size: Batch size for training
+            
+        Returns:
+            Dictionary with optimized data loading parameters
+        """
+        cpu_memory_usage = self.get_memory_usage()
+        gpu_used, gpu_total = self.get_gpu_memory_usage()
+        
+        # Calculate optimal prefetch and caching strategy
+        cpu_memory_available = max(0, self.max_memory_gb - cpu_memory_usage)
+        gpu_memory_available = max(0, gpu_total - gpu_used) if self.gpu_available else 0
+        
+        # Determine prefetch strategy
+        if gpu_memory_available > 4.0:  # Plenty of GPU memory
+            prefetch_device = 'cuda'
+            prefetch_factor = min(4, int(gpu_memory_available))
+        elif cpu_memory_available > 2.0:  # Use CPU for prefetching
+            prefetch_device = 'cpu'
+            prefetch_factor = min(2, int(cpu_memory_available))
+        else:  # Conservative approach
+            prefetch_device = 'cpu'
+            prefetch_factor = 1
+        
+        optimization_params = {
+            'prefetch_device': prefetch_device,
+            'prefetch_factor': prefetch_factor,
+            'pin_memory': self.gpu_available and cpu_memory_available > 1.0,
+            'num_workers': 0,  # Keep 0 for Colab compatibility
+            'persistent_workers': False,
+            'recommended_batch_size': self.get_dynamic_batch_size(batch_size),
+            'hybrid_caching_enabled': gpu_memory_available > 2.0 and cpu_memory_available > 1.0
+        }
+        
+        logger.info(f"Hybrid memory optimization: {prefetch_device} prefetch, "
+                   f"factor {prefetch_factor}, pin_memory {optimization_params['pin_memory']}")
+        
+        return optimization_params

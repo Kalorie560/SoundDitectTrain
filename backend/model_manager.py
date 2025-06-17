@@ -1022,22 +1022,39 @@ class ModelManager:
                 logger.error("Insufficient memory to continue training")
                 return False
             
-            # Setup training
+            # Setup training with hybrid memory management
             logger.info("Setting up training components...")
-            criterion = nn.CrossEntropyLoss()
+            
+            # Manage hybrid CPU+GPU memory utilization
+            hybrid_stats = self.memory_manager.manage_hybrid_memory("Training setup")
+            
+            # Move model to optimal device (ensuring GPU is used when available)
+            optimal_device = self.device
+            if self.memory_manager.gpu_available and hybrid_stats.get('optimal_device') == 'cuda':
+                self.model = self.model.to('cuda')
+                optimal_device = torch.device('cuda')
+                logger.info(f"🚀 Model moved to GPU for training (T4 VRAM utilization enabled)")
+            else:
+                logger.info(f"📍 Model using device: {optimal_device}")
+            
+            # Initialize training components
+            criterion = nn.CrossEntropyLoss().to(optimal_device)
             optimizer = optim.Adam(
                 self.model.parameters(), 
                 lr=self.config['training']['learning_rate']
             )
             
-            # Setup mixed precision training if enabled
+            # Setup automatic mixed precision training for GPU efficiency
             scaler = None
-            use_amp = (self.memory_manager.mixed_precision and 
-                      self.memory_manager.gpu_available and 
-                      hasattr(torch.cuda, 'amp'))
+            use_amp = (self.memory_manager.gpu_available and 
+                      hasattr(torch.cuda, 'amp') and 
+                      optimal_device.type == 'cuda')
             if use_amp:
                 scaler = torch.cuda.amp.GradScaler()
-                logger.info("✅ Automatic Mixed Precision (AMP) enabled for memory efficiency")
+                logger.info("✅ Automatic Mixed Precision (AMP) enabled for T4 GPU efficiency")
+                logger.info(f"🎯 GPU Memory Pool: {hybrid_stats.get('gpu_memory_available_gb', 0):.1f}GB available")
+            elif self.memory_manager.mixed_precision:
+                logger.info("⚠️ Mixed precision requested but GPU not available - using CPU training")
             
             # Memory check after optimizer creation
             if not self.memory_manager.enforce_memory_limit("After optimizer creation"):
@@ -1169,23 +1186,33 @@ class ModelManager:
             
             logger.info(f"📊 Training samples: {len(train_dataset)}, Validation samples: {len(val_dataset)}")
             
-            # Create memory-efficient data loaders with dynamic batch sizing
+            # Create hybrid memory-optimized data loaders with dynamic batch sizing
             configured_batch_size = self.config['training']['batch_size']
-            dynamic_batch_size = self.memory_manager.get_dynamic_batch_size(configured_batch_size)
-            batch_size = min(dynamic_batch_size, len(train_dataset))
             
-            logger.info(f"Using dynamic batch size: {batch_size} (configured: {configured_batch_size})")
+            # Get hybrid memory optimization parameters
+            hybrid_params = self.memory_manager.optimize_data_loading_for_hybrid(
+                len(train_dataset), configured_batch_size
+            )
+            
+            # Use recommended batch size from hybrid optimization
+            batch_size = min(hybrid_params['recommended_batch_size'], len(train_dataset))
+            
+            logger.info(f"Using hybrid-optimized batch size: {batch_size} (configured: {configured_batch_size})")
+            logger.info(f"💾 Memory optimization: pin_memory={hybrid_params['pin_memory']}, "
+                       f"hybrid_caching={hybrid_params['hybrid_caching_enabled']}")
             
             train_loader = self.memory_manager.create_memory_efficient_dataloader(
                 train_dataset,
                 batch_size=batch_size,
-                shuffle=True
+                shuffle=True,
+                pin_memory=hybrid_params['pin_memory']
             )
             
             val_loader = self.memory_manager.create_memory_efficient_dataloader(
                 val_dataset,
                 batch_size=min(batch_size, len(val_dataset)),
-                shuffle=False
+                shuffle=False,
+                pin_memory=hybrid_params['pin_memory']
             )
             
             return train_loader, val_loader
@@ -1214,7 +1241,9 @@ class ModelManager:
                     logger.error("Critical memory issue - stopping training")
                     raise RuntimeError("Memory limit exceeded during training")
             
-            data, target = data.to(self.device), target.to(self.device)
+            # Move data to optimal device (utilizing hybrid memory management)
+            device = self.model.device if hasattr(self.model, 'device') else self.device
+            data, target = data.to(device, non_blocking=True), target.to(device, non_blocking=True)
             
             # Forward pass with optional mixed precision
             if use_amp and scaler:
