@@ -28,32 +28,32 @@ model:
   
   # Model Architecture Parameters
   cnn_layers:
-    - filters: 128
-      kernel_size: 63
+    - filters: 64
+      kernel_size: 31
       stride: 1
       padding: "same"
     - filters: 128
-      kernel_size: 63
+      kernel_size: 31
       stride: 1
       padding: "same"
-    - filters: 256
-      kernel_size: 63
+    - filters: 128
+      kernel_size: 31
       stride: 1
       padding: "same"
   
   attention:
-    hidden_dim: 256
-    num_heads: 8
+    hidden_dim: 128
+    num_heads: 4
   
   fully_connected:
-    - units: 512
-      dropout: 0.3
     - units: 256
+      dropout: 0.3
+    - units: 128
       dropout: 0.3
 
 # Training Configuration
 training:
-  batch_size: 16
+  batch_size: 8
   epochs: 100
   learning_rate: 0.001
   optimizer: "adam"
@@ -81,7 +81,7 @@ data:
   prefetch_buffer_size: 2
   
   # Memory management settings
-  gradient_accumulation_steps: 4
+  gradient_accumulation_steps: 8
   memory_efficient_attention: true
   pin_memory: false
 
